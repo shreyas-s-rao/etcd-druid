@@ -29,7 +29,7 @@ spec:
         role: test
     etcd:
         metrics: basic
-        image: eu.gcr.io/gardener-project/gardener/etcd:v3.4.13
+        image: eu.gcr.io/gardener-project/gardener/etcd:v3.4.13-bootstrap
         defragmentationSchedule: "0 */24 * * *"
         resources:
             limits: { cpu: 2500m, memory: 4Gi }
