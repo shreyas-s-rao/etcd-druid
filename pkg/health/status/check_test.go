@@ -75,7 +75,7 @@ var _ = Describe("Check", func() {
 						ID:                 "1",
 						Name:               "Member1",
 						Role:               druidv1alpha1.EtcdRoleMember,
-						Status:             druidv1alpha1.EtcdMemeberStatusReady,
+						Status:             druidv1alpha1.EtcdMemberStatusReady,
 						LastTransitionTime: metav1.NewTime(timeBefore),
 						LastUpdateTime:     metav1.NewTime(timeBefore),
 						Reason:             "foo reason",
@@ -84,7 +84,7 @@ var _ = Describe("Check", func() {
 						ID:                 "2",
 						Name:               "Member2",
 						Role:               druidv1alpha1.EtcdRoleLearner,
-						Status:             druidv1alpha1.EtcdMemeberStatusNotReady,
+						Status:             druidv1alpha1.EtcdMemberStatusNotReady,
 						LastTransitionTime: metav1.NewTime(timeBefore),
 						LastUpdateTime:     metav1.NewTime(timeBefore),
 						Reason:             "bar reason",
@@ -93,7 +93,7 @@ var _ = Describe("Check", func() {
 						ID:                 "3",
 						Name:               "Member3",
 						Role:               druidv1alpha1.EtcdRoleMember,
-						Status:             druidv1alpha1.EtcdMemeberStatusReady,
+						Status:             druidv1alpha1.EtcdMemberStatusReady,
 						LastTransitionTime: metav1.NewTime(timeBefore),
 						LastUpdateTime:     metav1.NewTime(timeBefore),
 						Reason:             "foobar reason",
@@ -116,7 +116,7 @@ var _ = Describe("Check", func() {
 
 			defer test.WithVar(&EtcdMemberChecks, []EtcdMemberCheckFn{
 				func(_ client.Client, _ controllersconfig.EtcdCustodianController) etcdmember.Checker {
-					return createEtcdMemberCheck("1", druidv1alpha1.EtcdMemeberStatusUnknown, "Unknown")
+					return createEtcdMemberCheck("1", druidv1alpha1.EtcdMemberStatusUnknown, "Unknown")
 				},
 			})()
 
@@ -158,7 +158,7 @@ var _ = Describe("Check", func() {
 					"ID":                 Equal("1"),
 					"Name":               Equal("Member1"),
 					"Role":               Equal(druidv1alpha1.EtcdRoleMember),
-					"Status":             Equal(druidv1alpha1.EtcdMemeberStatusUnknown),
+					"Status":             Equal(druidv1alpha1.EtcdMemberStatusUnknown),
 					"LastTransitionTime": Equal(metav1.NewTime(timeNow)),
 					"LastUpdateTime":     Equal(metav1.NewTime(timeNow)),
 					"Reason":             Equal("Unknown"),
@@ -167,7 +167,7 @@ var _ = Describe("Check", func() {
 					"ID":                 Equal("2"),
 					"Name":               Equal("Member2"),
 					"Role":               Equal(druidv1alpha1.EtcdRoleLearner),
-					"Status":             Equal(druidv1alpha1.EtcdMemeberStatusNotReady),
+					"Status":             Equal(druidv1alpha1.EtcdMemberStatusNotReady),
 					"LastTransitionTime": Equal(metav1.NewTime(timeBefore)),
 					"LastUpdateTime":     Equal(metav1.NewTime(timeBefore)),
 					"Reason":             Equal("bar reason"),
@@ -176,7 +176,7 @@ var _ = Describe("Check", func() {
 					"ID":                 Equal("3"),
 					"Name":               Equal("Member3"),
 					"Role":               Equal(druidv1alpha1.EtcdRoleMember),
-					"Status":             Equal(druidv1alpha1.EtcdMemeberStatusReady),
+					"Status":             Equal(druidv1alpha1.EtcdMemberStatusReady),
 					"LastTransitionTime": Equal(metav1.NewTime(timeBefore)),
 					"LastUpdateTime":     Equal(metav1.NewTime(timeBefore)),
 					"Reason":             Equal("foobar reason"),

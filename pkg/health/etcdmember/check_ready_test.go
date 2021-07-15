@@ -84,7 +84,7 @@ var _ = Describe("ReadyCheck", func() {
 								Name:               podName,
 								ID:                 "1",
 								Role:               druidv1alpha1.EtcdRoleMember,
-								Status:             druidv1alpha1.EtcdMemeberStatusReady,
+								Status:             druidv1alpha1.EtcdMemberStatusReady,
 								Reason:             "foo reason",
 								LastTransitionTime: metav1.Now(),
 								LastUpdateTime:     metav1.NewTime(now.Add(-301 * time.Second)),
@@ -93,7 +93,7 @@ var _ = Describe("ReadyCheck", func() {
 								Name:               "member2",
 								ID:                 "2",
 								Role:               druidv1alpha1.EtcdRoleMember,
-								Status:             druidv1alpha1.EtcdMemeberStatusReady,
+								Status:             druidv1alpha1.EtcdMemberStatusReady,
 								Reason:             "bar reason",
 								LastTransitionTime: metav1.Now(),
 								LastUpdateTime:     metav1.NewTime(now.Add(-1 * unknownThreshold)),
@@ -133,7 +133,7 @@ var _ = Describe("ReadyCheck", func() {
 				results := check.Check(ctx, etcd)
 
 				Expect(results).To(HaveLen(1))
-				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemeberStatusUnknown))
+				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemberStatusUnknown))
 				Expect(results[0].ID()).To(Equal("1"))
 			})
 
@@ -157,7 +157,7 @@ var _ = Describe("ReadyCheck", func() {
 				results := check.Check(ctx, etcd)
 
 				Expect(results).To(HaveLen(1))
-				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemeberStatusUnknown))
+				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemberStatusUnknown))
 				Expect(results[0].ID()).To(Equal("1"))
 			})
 
@@ -191,7 +191,7 @@ var _ = Describe("ReadyCheck", func() {
 				results := check.Check(ctx, etcd)
 
 				Expect(results).To(HaveLen(1))
-				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemeberStatusNotReady))
+				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemberStatusNotReady))
 				Expect(results[0].ID()).To(Equal("1"))
 			})
 
@@ -215,7 +215,7 @@ var _ = Describe("ReadyCheck", func() {
 				results := check.Check(ctx, etcd)
 
 				Expect(results).To(HaveLen(1))
-				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemeberStatusNotReady))
+				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemberStatusNotReady))
 				Expect(results[0].ID()).To(Equal("1"))
 			})
 
@@ -227,11 +227,11 @@ var _ = Describe("ReadyCheck", func() {
 				latestWithinGrace := now.Add(-1 * notReadyThreshold)
 
 				// member with unknown state within grace period
-				etcd.Status.Members[0].Status = druidv1alpha1.EtcdMemeberStatusUnknown
+				etcd.Status.Members[0].Status = druidv1alpha1.EtcdMemberStatusUnknown
 				etcd.Status.Members[0].LastTransitionTime = metav1.NewTime(latestWithinGrace)
 
 				// member with unknown state outside grace period
-				etcd.Status.Members[1].Status = druidv1alpha1.EtcdMemeberStatusUnknown
+				etcd.Status.Members[1].Status = druidv1alpha1.EtcdMemberStatusUnknown
 				etcd.Status.Members[1].LastTransitionTime = metav1.NewTime(latestWithinGrace.Add(-1 * time.Second))
 
 				cl.EXPECT().Get(ctx, kutil.Key(etcd.Namespace, podName), gomock.AssignableToTypeOf(&corev1.Pod{})).DoAndReturn(
@@ -243,9 +243,9 @@ var _ = Describe("ReadyCheck", func() {
 				results := check.Check(ctx, etcd)
 
 				Expect(results).To(HaveLen(2))
-				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemeberStatusUnknown))
+				Expect(results[0].Status()).To(Equal(druidv1alpha1.EtcdMemberStatusUnknown))
 				Expect(results[0].ID()).To(Equal("1"))
-				Expect(results[1].Status()).To(Equal(druidv1alpha1.EtcdMemeberStatusNotReady))
+				Expect(results[1].Status()).To(Equal(druidv1alpha1.EtcdMemberStatusNotReady))
 				Expect(results[1].ID()).To(Equal("2"))
 			})
 		})
@@ -262,7 +262,7 @@ var _ = Describe("ReadyCheck", func() {
 								Name:               "member1",
 								ID:                 "1",
 								Role:               druidv1alpha1.EtcdRoleMember,
-								Status:             druidv1alpha1.EtcdMemeberStatusReady,
+								Status:             druidv1alpha1.EtcdMemberStatusReady,
 								Reason:             "foo reason",
 								LastTransitionTime: metav1.Now(),
 								LastUpdateTime:     metav1.Now(),
@@ -271,7 +271,7 @@ var _ = Describe("ReadyCheck", func() {
 								Name:               "member2",
 								ID:                 "2",
 								Role:               druidv1alpha1.EtcdRoleMember,
-								Status:             druidv1alpha1.EtcdMemeberStatusReady,
+								Status:             druidv1alpha1.EtcdMemberStatusReady,
 								Reason:             "bar reason",
 								LastTransitionTime: metav1.Now(),
 								LastUpdateTime:     metav1.NewTime(now.Add(-1 * unknownThreshold)),

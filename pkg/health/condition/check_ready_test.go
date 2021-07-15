@@ -29,10 +29,10 @@ var _ = Describe("ReadyCheck", func() {
 
 		BeforeEach(func() {
 			readyMember = druidv1alpha1.EtcdMemberStatus{
-				Status: druidv1alpha1.EtcdMemeberStatusReady,
+				Status: druidv1alpha1.EtcdMemberStatusReady,
 			}
 			notReadyMember = druidv1alpha1.EtcdMemberStatus{
-				Status: druidv1alpha1.EtcdMemeberStatusNotReady,
+				Status: druidv1alpha1.EtcdMemberStatusNotReady,
 			}
 		})
 

@@ -54,7 +54,7 @@ var _ = Describe("Builder", func() {
 						Name:               "member1",
 						ID:                 "1",
 						Role:               druidv1alpha1.EtcdRoleMember,
-						Status:             druidv1alpha1.EtcdMemeberStatusReady,
+						Status:             druidv1alpha1.EtcdMemberStatusReady,
 						Reason:             "foo reason",
 						LastUpdateTime:     metav1.NewTime(now.Add(-12 * time.Hour)),
 						LastTransitionTime: metav1.NewTime(now.Add(-12 * time.Hour)),
@@ -63,7 +63,7 @@ var _ = Describe("Builder", func() {
 						Name:               "member2",
 						ID:                 "2",
 						Role:               druidv1alpha1.EtcdRoleMember,
-						Status:             druidv1alpha1.EtcdMemeberStatusReady,
+						Status:             druidv1alpha1.EtcdMemberStatusReady,
 						Reason:             "bar reason",
 						LastUpdateTime:     metav1.NewTime(now.Add(-6 * time.Hour)),
 						LastTransitionTime: metav1.NewTime(now.Add(-6 * time.Hour)),
@@ -72,7 +72,7 @@ var _ = Describe("Builder", func() {
 						Name:               "member3",
 						ID:                 "3",
 						Role:               druidv1alpha1.EtcdRoleMember,
-						Status:             druidv1alpha1.EtcdMemeberStatusReady,
+						Status:             druidv1alpha1.EtcdMemberStatusReady,
 						Reason:             "foobar reason",
 						LastUpdateTime:     metav1.NewTime(now.Add(-18 * time.Hour)),
 						LastTransitionTime: metav1.NewTime(now.Add(-18 * time.Hour)),
@@ -90,7 +90,7 @@ var _ = Describe("Builder", func() {
 				builder.WithResults([]Result{
 					&result{
 						MemberID:     "3",
-						MemberStatus: druidv1alpha1.EtcdMemeberStatusUnknown,
+						MemberStatus: druidv1alpha1.EtcdMemberStatusUnknown,
 						MemberReason: "unknown reason",
 					},
 				})
@@ -104,7 +104,7 @@ var _ = Describe("Builder", func() {
 						"Name":               Equal("member3"),
 						"ID":                 Equal("3"),
 						"Role":               Equal(druidv1alpha1.EtcdRoleMember),
-						"Status":             Equal(druidv1alpha1.EtcdMemeberStatusUnknown),
+						"Status":             Equal(druidv1alpha1.EtcdMemberStatusUnknown),
 						"Reason":             Equal("unknown reason"),
 						"LastUpdateTime":     Equal(metav1.NewTime(now)),
 						"LastTransitionTime": Equal(metav1.NewTime(now)),
@@ -118,12 +118,12 @@ var _ = Describe("Builder", func() {
 				builder.WithResults([]Result{
 					&result{
 						MemberID:     "1",
-						MemberStatus: druidv1alpha1.EtcdMemeberStatusUnknown,
+						MemberStatus: druidv1alpha1.EtcdMemberStatusUnknown,
 						MemberReason: "unknown reason",
 					},
 					&result{
 						MemberID:     "2",
-						MemberStatus: druidv1alpha1.EtcdMemeberStatusReady,
+						MemberStatus: druidv1alpha1.EtcdMemberStatusReady,
 						MemberReason: "foo reason",
 					},
 				})

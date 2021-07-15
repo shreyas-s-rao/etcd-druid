@@ -43,11 +43,11 @@ func (r *readyCheck) Check(ctx context.Context, etcd druidv1alpha1.Etcd) []Resul
 
 	for _, member := range etcd.Status.Members {
 		// Check if status must be changed from Unknown to NotReady.
-		if member.Status == druidv1alpha1.EtcdMemeberStatusUnknown &&
+		if member.Status == druidv1alpha1.EtcdMemberStatusUnknown &&
 			member.LastTransitionTime.Time.Add(r.memberConfig.EtcdMemberNotReadyThreshold).Before(checkTime) {
 			results = append(results, &result{
 				id:     member.ID,
-				status: druidv1alpha1.EtcdMemeberStatusNotReady,
+				status: druidv1alpha1.EtcdMemberStatusNotReady,
 				reason: "UnkownStateTimeout",
 			})
 			continue
@@ -63,7 +63,7 @@ func (r *readyCheck) Check(ctx context.Context, etcd druidv1alpha1.Etcd) []Resul
 		if (err == nil && !ready) || apierrors.IsNotFound(err) {
 			results = append(results, &result{
 				id:     member.ID,
-				status: druidv1alpha1.EtcdMemeberStatusNotReady,
+				status: druidv1alpha1.EtcdMemberStatusNotReady,
 				reason: "ContainersNotReady",
 			})
 			continue
@@ -72,7 +72,7 @@ func (r *readyCheck) Check(ctx context.Context, etcd druidv1alpha1.Etcd) []Resul
 		// For every other reason the status is Unknown.
 		results = append(results, &result{
 			id:     member.ID,
-			status: druidv1alpha1.EtcdMemeberStatusUnknown,
+			status: druidv1alpha1.EtcdMemberStatusUnknown,
 			reason: "UnknownMemberStatus",
 		})
 	}
