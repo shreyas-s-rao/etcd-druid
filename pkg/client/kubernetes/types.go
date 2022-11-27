@@ -22,6 +22,7 @@ import (
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 )
 
+// Scheme contains the Kubernetes client scheme object
 var Scheme = runtime.NewScheme()
 
 func init() {

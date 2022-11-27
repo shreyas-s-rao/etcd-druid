@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/controllerutils/mapper"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/go-logr/logr"
@@ -29,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -139,40 +137,39 @@ func (ec *EtcdCustodian) updateEtcdStatus(ctx context.Context, logger logr.Logge
 		members    = etcd.Status.Members
 	)
 
-	return controllerutils.TryUpdateStatus(ctx, retry.DefaultBackoff, ec.Client, etcd, func() error {
-		etcd.Status.Conditions = conditions
-		etcd.Status.Members = members
+	etcd.Status.Conditions = conditions
+	etcd.Status.Members = members
 
-		// Bootstrap is a special case which is handled by the etcd controller.
-		if !inBootstrap(etcd) && len(members) != 0 {
-			etcd.Status.ClusterSize = pointer.Int32Ptr(int32(len(members)))
+	// Bootstrap is a special case which is handled by the etcd controller.
+	if !inBootstrap(etcd) && len(members) != 0 {
+		etcd.Status.ClusterSize = pointer.Int32Ptr(int32(len(members)))
+	}
+
+	if sts != nil {
+		etcd.Status.Etcd = &druidv1alpha1.CrossVersionObjectReference{
+			APIVersion: sts.APIVersion,
+			Kind:       sts.Kind,
+			Name:       sts.Name,
 		}
 
-		if sts != nil {
-			etcd.Status.Etcd = &druidv1alpha1.CrossVersionObjectReference{
-				APIVersion: sts.APIVersion,
-				Kind:       sts.Kind,
-				Name:       sts.Name,
-			}
+		ready := utils.CheckStatefulSet(etcd.Spec.Replicas, sts) == nil
 
-			ready := utils.CheckStatefulSet(etcd.Spec.Replicas, sts) == nil
-
-			// To be changed once we have multiple replicas.
-			etcd.Status.CurrentReplicas = sts.Status.CurrentReplicas
-			etcd.Status.ReadyReplicas = sts.Status.ReadyReplicas
-			etcd.Status.UpdatedReplicas = sts.Status.UpdatedReplicas
-			etcd.Status.Ready = &ready
-			logger.Info(fmt.Sprintf("ETCD status updated for statefulset current replicas: %v, ready replicas: %v, updated replicas: %v", sts.Status.CurrentReplicas, sts.Status.ReadyReplicas, sts.Status.UpdatedReplicas))
-			return nil
-		}
-
-		etcd.Status.CurrentReplicas = 0
-		etcd.Status.ReadyReplicas = 0
-		etcd.Status.UpdatedReplicas = 0
-
-		etcd.Status.Ready = pointer.BoolPtr(false)
+		// To be changed once we have multiple replicas.
+		etcd.Status.CurrentReplicas = sts.Status.CurrentReplicas
+		etcd.Status.ReadyReplicas = sts.Status.ReadyReplicas
+		etcd.Status.UpdatedReplicas = sts.Status.UpdatedReplicas
+		etcd.Status.Ready = &ready
+		logger.Info(fmt.Sprintf("ETCD status updated for statefulset current replicas: %v, ready replicas: %v, updated replicas: %v", sts.Status.CurrentReplicas, sts.Status.ReadyReplicas, sts.Status.UpdatedReplicas))
 		return nil
-	})
+	}
+
+	etcd.Status.CurrentReplicas = 0
+	etcd.Status.ReadyReplicas = 0
+	etcd.Status.UpdatedReplicas = 0
+
+	etcd.Status.Ready = pointer.BoolPtr(false)
+
+	return ec.Client.Status().Update(ctx, etcd)
 }
 
 func inBootstrap(etcd *druidv1alpha1.Etcd) bool {
@@ -196,7 +193,7 @@ func (ec *EtcdCustodian) SetupWithManager(ctx context.Context, mgr ctrl.Manager,
 		Owns(&coordinationv1.Lease{}).
 		Watches(
 			&source.Kind{Type: &appsv1.StatefulSet{}},
-			mapper.EnqueueRequestsFrom(druidmapper.StatefulSetToEtcd(ctx, mgr.GetClient()), mapper.UpdateWithNew),
+			mapper.EnqueueRequestsFrom(druidmapper.StatefulSetToEtcd(ctx, mgr.GetClient()), mapper.UpdateWithNew, ec.logger),
 			ctrlbuilder.WithPredicates(druidpredicates.StatefulSetStatusChange()),
 		).
 		Complete(ec)

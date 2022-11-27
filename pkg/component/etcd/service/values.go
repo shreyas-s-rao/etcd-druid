@@ -16,6 +16,7 @@ package service
 
 import "k8s.io/apimachinery/pkg/types"
 
+// Values specifies the configuration values for the etcd service.
 type Values struct {
 	// BackupPort is the port exposed by the etcd-backup-restore side-car.
 	BackupPort int32

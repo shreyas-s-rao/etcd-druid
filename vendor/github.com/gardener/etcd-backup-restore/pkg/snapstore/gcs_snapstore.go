@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"path"
@@ -36,6 +35,7 @@ import (
 )
 
 const (
+	storeCredentials       = "GOOGLE_APPLICATION_CREDENTIALS"
 	sourceStoreCredentials = "SOURCE_GOOGLE_APPLICATION_CREDENTIALS"
 )
 
@@ -94,7 +94,7 @@ func (s *GCSSnapStore) Fetch(snap brtypes.Snapshot) (io.ReadCloser, error) {
 
 // Save will write the snapshot to store.
 func (s *GCSSnapStore) Save(snap brtypes.Snapshot, rc io.ReadCloser) error {
-	tmpfile, err := ioutil.TempFile(s.tempDir, tmpBackupFilePrefix)
+	tmpfile, err := os.CreateTemp(s.tempDir, tmpBackupFilePrefix)
 	if err != nil {
 		rc.Close()
 		return fmt.Errorf("failed to create snapshot tempfile: %v", err)
@@ -255,4 +255,26 @@ func (s *GCSSnapStore) List() (brtypes.SnapList, error) {
 func (s *GCSSnapStore) Delete(snap brtypes.Snapshot) error {
 	objectName := path.Join(snap.Prefix, snap.SnapDir, snap.SnapName)
 	return s.client.Bucket(s.bucket).Object(objectName).Delete(context.TODO())
+}
+
+// GCSSnapStoreHash calculates and returns the hash of GCS snapstore secret.
+func GCSSnapStoreHash(config *brtypes.SnapstoreConfig) (string, error) {
+	if _, isSet := os.LookupEnv(storeCredentials); isSet {
+		if file := os.Getenv(storeCredentials); file != "" {
+			credjson, err := readGCSCredentialsFile(file)
+			if err != nil {
+				return "", fmt.Errorf("error getting credentials from %v ", file)
+			}
+			return getHash(credjson), nil
+		}
+	}
+	return "", nil
+}
+
+func readGCSCredentialsFile(filename string) ([]byte, error) {
+	b, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }

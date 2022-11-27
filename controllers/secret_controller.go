@@ -108,7 +108,7 @@ func (s *Secret) addFinalizer(ctx context.Context, logger logr.Logger, secret *c
 	}
 
 	logger.Info("Adding finalizer")
-	return client.IgnoreNotFound(controllerutils.StrategicMergePatchAddFinalizers(ctx, s.Client, secret, FinalizerName))
+	return client.IgnoreNotFound(controllerutils.AddFinalizers(ctx, s.Client, secret, FinalizerName))
 }
 
 func (s *Secret) removeFinalizer(ctx context.Context, logger logr.Logger, secret *corev1.Secret) error {
@@ -117,7 +117,7 @@ func (s *Secret) removeFinalizer(ctx context.Context, logger logr.Logger, secret
 	}
 
 	logger.Info("Removing finalizer")
-	return client.IgnoreNotFound(controllerutils.PatchRemoveFinalizers(ctx, s.Client, secret, FinalizerName))
+	return client.IgnoreNotFound(controllerutils.RemoveFinalizers(ctx, s.Client, secret, FinalizerName))
 }
 
 // SetupWithManager sets up manager with a new controller and s as the reconcile.Reconciler.
@@ -130,7 +130,7 @@ func (s *Secret) SetupWithManager(mgr ctrl.Manager, workers int) error {
 		For(&corev1.Secret{}).
 		Watches(
 			&source.Kind{Type: &druidv1alpha1.Etcd{}},
-			mapper.EnqueueRequestsFrom(druidmapper.EtcdToSecret(), mapper.UpdateWithOldAndNew),
+			mapper.EnqueueRequestsFrom(druidmapper.EtcdToSecret(), mapper.UpdateWithOldAndNew, s.logger),
 		).
 		Complete(s)
 }

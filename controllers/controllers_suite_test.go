@@ -25,14 +25,13 @@ import (
 	controllersconfig "github.com/gardener/etcd-druid/controllers/config"
 
 	"github.com/gardener/gardener/pkg/utils/test"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	// +kubebuilder:scaffold:imports
@@ -59,13 +58,10 @@ var (
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
-
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t, "Controller Suite")
 }
 
-var _ = BeforeSuite(func(done Done) {
+var _ = BeforeSuite(func() {
 	mgrCtx, mgrCancel = context.WithCancel(context.Background())
 	var err error
 	//logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
@@ -141,9 +137,7 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).NotTo(HaveOccurred())
 
 	mgrStopped = startTestManager(mgrCtx, mgr)
-
-	close(done)
-}, 60)
+})
 
 var _ = AfterSuite(func() {
 	mgrCancel()

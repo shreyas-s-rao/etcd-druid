@@ -34,11 +34,11 @@ import (
 	druidpredicates "github.com/gardener/etcd-druid/pkg/predicate"
 	"github.com/gardener/etcd-druid/pkg/utils"
 
-	extensionspredicate "github.com/gardener/gardener/extensions/pkg/predicate"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/chartrenderer"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/controllerutils"
+	controllerutilsspredicate "github.com/gardener/gardener/pkg/controllerutils/predicate"
 	gardenercomponent "github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
@@ -55,7 +55,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -87,7 +86,8 @@ const (
 	EtcdReady = true
 	// DefaultAutoCompactionRetention defines the default auto-compaction-retention length for etcd.
 	DefaultAutoCompactionRetention = "30m"
-	// Annotation set by human operator in order to stop reconciliation
+	// IgnoreReconciliationAnnotation is an annotation set by human operator on an etcd resource
+	// in order to ignore its reconciliation
 	IgnoreReconciliationAnnotation = "druid.gardener.cloud/ignore-reconciliation"
 )
 
@@ -219,7 +219,7 @@ func buildPredicate(ignoreOperationAnnotation bool) predicate.Predicate {
 	return predicate.Or(
 		druidpredicates.HasOperationAnnotation(),
 		druidpredicates.LastOperationNotSuccessful(),
-		extensionspredicate.IsDeleting(),
+		controllerutilsspredicate.IsDeleting(),
 	)
 }
 
@@ -271,7 +271,7 @@ func (r *EtcdReconciler) reconcile(ctx context.Context, etcd *druidv1alpha1.Etcd
 	// Add Finalizers to Etcd
 	if finalizers := sets.NewString(etcd.Finalizers...); !finalizers.Has(FinalizerName) {
 		logger.Info("Adding finalizer")
-		if err := controllerutils.PatchAddFinalizers(ctx, r.Client, etcd, FinalizerName); err != nil {
+		if err := controllerutils.AddFinalizers(ctx, r.Client, etcd, FinalizerName); err != nil {
 			if err := r.updateEtcdErrorStatus(ctx, etcd, reconcileResult{err: err}); err != nil {
 				return ctrl.Result{
 					Requeue: true,
@@ -371,7 +371,7 @@ func (r *EtcdReconciler) delete(ctx context.Context, etcd *druidv1alpha1.Etcd) (
 
 	if sets.NewString(etcd.Finalizers...).Has(FinalizerName) {
 		logger.Info("Removing finalizer")
-		if err := controllerutils.PatchRemoveFinalizers(ctx, r.Client, etcd, FinalizerName); client.IgnoreNotFound(err) != nil {
+		if err := controllerutils.RemoveFinalizers(ctx, r.Client, etcd, FinalizerName); client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{
 				Requeue: true,
 			}, err
@@ -734,39 +734,35 @@ func clusterInBootstrap(etcd *druidv1alpha1.Etcd) bool {
 }
 
 func (r *EtcdReconciler) updateEtcdErrorStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
-	return controllerutils.TryUpdateStatus(ctx, retry.DefaultBackoff, r.Client, etcd, func() error {
-		lastErrStr := fmt.Sprintf("%v", result.err)
-		etcd.Status.LastError = &lastErrStr
-		etcd.Status.ObservedGeneration = &etcd.Generation
-		if result.sts != nil {
-			if clusterInBootstrap(etcd) {
-				// Reset members in bootstrap phase to ensure dependent conditions can be calculated correctly.
-				bootstrapReset(etcd)
-			}
-			ready := utils.CheckStatefulSet(etcd.Spec.Replicas, result.sts) == nil
-			etcd.Status.Ready = &ready
-			etcd.Status.Replicas = pointer.Int32PtrDerefOr(result.sts.Spec.Replicas, 0)
-		}
-		return nil
-	})
-}
-
-func (r *EtcdReconciler) updateEtcdStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
-	return controllerutils.TryUpdateStatus(ctx, retry.DefaultBackoff, r.Client, etcd, func() error {
+	lastErrStr := fmt.Sprintf("%v", result.err)
+	etcd.Status.LastError = &lastErrStr
+	etcd.Status.ObservedGeneration = &etcd.Generation
+	if result.sts != nil {
 		if clusterInBootstrap(etcd) {
 			// Reset members in bootstrap phase to ensure dependent conditions can be calculated correctly.
 			bootstrapReset(etcd)
 		}
-		if result.sts != nil {
-			ready := utils.CheckStatefulSet(etcd.Spec.Replicas, result.sts) == nil
-			etcd.Status.Ready = &ready
-			etcd.Status.Replicas = pointer.Int32PtrDerefOr(result.sts.Spec.Replicas, 0)
-		}
-		etcd.Status.ServiceName = result.svcName
-		etcd.Status.LastError = nil
-		etcd.Status.ObservedGeneration = &etcd.Generation
-		return nil
-	})
+		ready := utils.CheckStatefulSet(etcd.Spec.Replicas, result.sts) == nil
+		etcd.Status.Ready = &ready
+		etcd.Status.Replicas = pointer.Int32PtrDerefOr(result.sts.Spec.Replicas, 0)
+	}
+	return r.Client.Status().Update(ctx, etcd)
+}
+
+func (r *EtcdReconciler) updateEtcdStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
+	if clusterInBootstrap(etcd) {
+		// Reset members in bootstrap phase to ensure dependent conditions can be calculated correctly.
+		bootstrapReset(etcd)
+	}
+	if result.sts != nil {
+		ready := utils.CheckStatefulSet(etcd.Spec.Replicas, result.sts) == nil
+		etcd.Status.Ready = &ready
+		etcd.Status.Replicas = pointer.Int32PtrDerefOr(result.sts.Spec.Replicas, 0)
+	}
+	etcd.Status.ServiceName = result.svcName
+	etcd.Status.LastError = nil
+	etcd.Status.ObservedGeneration = &etcd.Generation
+	return r.Client.Status().Update(ctx, etcd)
 }
 
 func (r *EtcdReconciler) removeOperationAnnotation(ctx context.Context, logger logr.Logger, etcd *druidv1alpha1.Etcd) error {
@@ -780,10 +776,7 @@ func (r *EtcdReconciler) removeOperationAnnotation(ctx context.Context, logger l
 }
 
 func (r *EtcdReconciler) updateEtcdStatusAsNotReady(ctx context.Context, etcd *druidv1alpha1.Etcd) (*druidv1alpha1.Etcd, error) {
-	err := controllerutils.TryUpdateStatus(ctx, retry.DefaultBackoff, r.Client, etcd, func() error {
-		etcd.Status.Ready = nil
-		etcd.Status.ReadyReplicas = 0
-		return nil
-	})
-	return etcd, err
+	etcd.Status.Ready = nil
+	etcd.Status.ReadyReplicas = 0
+	return etcd, r.Client.Status().Update(ctx, etcd)
 }

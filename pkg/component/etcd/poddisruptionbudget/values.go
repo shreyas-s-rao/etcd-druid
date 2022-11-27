@@ -24,6 +24,7 @@ const (
 	appKey                 = "app"
 )
 
+// Values contains the configuration values for the etcd pod disruption budget.
 type Values struct {
 	// EtcdName is the name of the etcd resource.
 	EtcdName string

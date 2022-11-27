@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -65,12 +65,12 @@ var _ = Describe("Etcd", func() {
 			Expect(k8sClient.Create(context.TODO(), created)).To(Succeed())
 
 			fetched = &Etcd{}
-			Expect(k8sClient.Get(context.TODO(), key, fetched)).To(Succeed())
+			Expect(k8sClient.Get(context.TODO(), key, fetched, nil)).To(Succeed())
 			Expect(fetched).To(Equal(created))
 
 			By("deleting the created object")
 			Expect(k8sClient.Delete(context.TODO(), created)).To(Succeed())
-			Expect(k8sClient.Get(context.TODO(), key, created)).ToNot(Succeed())
+			Expect(k8sClient.Get(context.TODO(), key, created, nil)).ToNot(Succeed())
 		})
 
 	})

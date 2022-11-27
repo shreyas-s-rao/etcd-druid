@@ -26,6 +26,7 @@ const (
 	defaultServerPort = 2380
 )
 
+// Values contains the configuration values for the etcd configmap.
 type Values struct {
 	// EtcdName is the name of the etcd resource.
 	EtcdName string

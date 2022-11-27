@@ -31,8 +31,7 @@ import (
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	"github.com/gardener/gardener/pkg/utils/test/matchers"
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	appsv1 "k8s.io/api/apps/v1"
@@ -263,7 +262,7 @@ var _ = Describe("Druid", func() {
 
 			// Eventually, warning message should be reflected in `etcd` object status.
 			Eventually(func() string {
-				if err := c.Get(context.TODO(), client.ObjectKeyFromObject(instance), instance); err != nil {
+				if err := c.Get(context.TODO(), client.ObjectKeyFromObject(instance), instance, nil); err != nil {
 					return ""
 				}
 				if instance.Status.LastError == nil {
@@ -343,7 +342,7 @@ var _ = Describe("Druid", func() {
 
 				// Check if ETCD has ready replicas more than zero
 				Eventually(func() error {
-					if err := c.Get(ctx, client.ObjectKeyFromObject(instance), instance); err != nil {
+					if err := c.Get(ctx, client.ObjectKeyFromObject(instance), instance, nil); err != nil {
 						return err
 					}
 
@@ -892,7 +891,7 @@ func validateEtcdWithDefaults(instance *druidv1alpha1.Etcd, s *appsv1.StatefulSe
 								}),
 							}),
 							"ReadinessProbe": PointTo(MatchFields(IgnoreExtras, Fields{
-								"Handler": MatchFields(IgnoreExtras, Fields{
+								"ProbeHandler": MatchFields(IgnoreExtras, Fields{
 									"HTTPGet": PointTo(MatchFields(IgnoreExtras, Fields{
 										"Path":   Equal("/healthz"),
 										"Port":   Equal(intstr.FromInt(int(backupPort))),
@@ -1253,7 +1252,7 @@ func validateEtcd(instance *druidv1alpha1.Etcd, s *appsv1.StatefulSet, cm *corev
 								}),
 							}),
 							"ReadinessProbe": PointTo(MatchFields(IgnoreExtras, Fields{
-								"Handler": MatchFields(IgnoreExtras, Fields{
+								"ProbeHandler": MatchFields(IgnoreExtras, Fields{
 									"HTTPGet": PointTo(MatchFields(IgnoreExtras, Fields{
 										"Path":   Equal("/healthz"),
 										"Port":   Equal(intstr.FromInt(int(backupPort))),

@@ -129,7 +129,7 @@ func (r *EtcdCopyBackupsTaskReconciler) reconcile(ctx context.Context, task *dru
 	// Ensure finalizer
 	if !controllerutil.ContainsFinalizer(task, FinalizerName) {
 		logger.V(1).Info("Adding finalizer")
-		if err := controllerutils.PatchAddFinalizers(ctx, r.Client, task, FinalizerName); err != nil {
+		if err := controllerutils.AddFinalizers(ctx, r.Client, task, FinalizerName); err != nil {
 			return ctrl.Result{}, fmt.Errorf("could not add finalizer: %w", err)
 		}
 	}
@@ -183,7 +183,7 @@ func (r *EtcdCopyBackupsTaskReconciler) delete(ctx context.Context, task *druidv
 	// Remove finalizer if requested
 	if removeFinalizer {
 		logger.V(1).Info("Removing finalizer")
-		if err := controllerutils.PatchRemoveFinalizers(ctx, r.Client, task, FinalizerName); err != nil {
+		if err := controllerutils.RemoveFinalizers(ctx, r.Client, task, FinalizerName); err != nil {
 			return ctrl.Result{}, fmt.Errorf("could not remove finalizer: %w", err)
 		}
 	}

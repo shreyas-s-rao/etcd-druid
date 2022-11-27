@@ -25,6 +25,7 @@ type Checker interface {
 	Check(ctx context.Context, etcd druidv1alpha1.Etcd) Result
 }
 
+// Result is an interface for each condition result for the etcd resource.
 type Result interface {
 	ConditionType() druidv1alpha1.ConditionType
 	Status() druidv1alpha1.ConditionStatus

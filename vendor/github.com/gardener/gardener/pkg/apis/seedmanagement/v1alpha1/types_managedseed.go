@@ -64,11 +64,13 @@ type ManagedSeedTemplate struct {
 // ManagedSeedSpec is the specification of a ManagedSeed.
 type ManagedSeedSpec struct {
 	// Shoot references a Shoot that should be registered as Seed.
+	// This field is immutable.
 	// +optional
 	Shoot *Shoot `json:"shoot,omitempty" protobuf:"bytes,1,opt,name=shoot"`
 	// SeedTemplate is a template for a Seed object, that should be used to register a given cluster as a Seed.
 	// Either SeedTemplate or Gardenlet must be specified. When Seed is specified, the ManagedSeed controller will not deploy a gardenlet into the cluster
 	// and an existing gardenlet reconciling the new Seed is required.
+	// Deprecated: This field is deprecated and will be removed in a future version of Gardener. Define seed via `.spec.gardenlet.config` instead.
 	// +optional
 	SeedTemplate *gardencorev1beta1.SeedTemplate `json:"seedTemplate,omitempty" protobuf:"bytes,2,opt,name=seedTemplate"`
 	// Gardenlet specifies that the ManagedSeed controller should deploy a gardenlet into the cluster
@@ -95,10 +97,11 @@ type Gardenlet struct {
 	// Bootstrap is the mechanism that should be used for bootstrapping gardenlet connection to the Garden cluster. One of ServiceAccount, BootstrapToken, None.
 	// If set to ServiceAccount or BootstrapToken, a service account or a bootstrap token will be created in the garden cluster and used to compute the bootstrap kubeconfig.
 	// If set to None, the gardenClientConnection.kubeconfig field will be used to connect to the Garden cluster. Defaults to BootstrapToken.
+	// This field is immutable.
 	// +optional
 	Bootstrap *Bootstrap `json:"bootstrap,omitempty" protobuf:"bytes,3,opt,name=bootstrap"`
 	// MergeWithParent specifies whether the GardenletConfiguration of the parent gardenlet
-	// should be merged with the specified GardenletConfiguration. Defaults to true.
+	// should be merged with the specified GardenletConfiguration. Defaults to true. This field is immutable.
 	// +optional
 	MergeWithParent *bool `json:"mergeWithParent,omitempty" protobuf:"varint,4,opt,name=mergeWithParent"`
 }
@@ -106,10 +109,10 @@ type Gardenlet struct {
 // GardenletDeployment specifies certain gardenlet deployment parameters, such as the number of replicas,
 // the image, etc.
 type GardenletDeployment struct {
-	// ReplicaCount is the number of gardenlet replicas. Defaults to 1.
+	// ReplicaCount is the number of gardenlet replicas. Defaults to 2.
 	// +optional
 	ReplicaCount *int32 `json:"replicaCount,omitempty" protobuf:"varint,1,opt,name=replicaCount"`
-	// RevisionHistoryLimit is the number of old gardenlet ReplicaSets to retain to allow rollback. Defaults to 10.
+	// RevisionHistoryLimit is the number of old gardenlet ReplicaSets to retain to allow rollback. Defaults to 2.
 	// +optional
 	RevisionHistoryLimit *int32 `json:"revisionHistoryLimit,omitempty" protobuf:"varint,2,opt,name=revisionHistoryLimit"`
 	// ServiceAccountName is the name of the ServiceAccount to use to run gardenlet pods.

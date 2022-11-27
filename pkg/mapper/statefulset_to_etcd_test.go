@@ -20,8 +20,9 @@ import (
 
 	"github.com/gardener/gardener/pkg/controllerutils/mapper"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
+	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,7 +76,7 @@ var _ = Describe("Druid Mapper", func() {
 				},
 			}
 
-			c.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(etcd)).DoAndReturn(
+			c.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(etcd), nil).DoAndReturn(
 				func(_ context.Context, _ client.ObjectKey, obj *druidv1alpha1.Etcd) error {
 					*obj = *etcd
 					return nil
@@ -84,7 +85,7 @@ var _ = Describe("Druid Mapper", func() {
 
 			kutil.SetMetaDataAnnotation(statefulset, common.GardenerOwnedBy, key)
 
-			etcds := mapper.Map(statefulset)
+			etcds := mapper.Map(ctx, logr.Discard(), nil, statefulset)
 
 			Expect(etcds).To(ConsistOf(
 				reconcile.Request{
@@ -97,23 +98,23 @@ var _ = Describe("Druid Mapper", func() {
 		})
 
 		It("should not find related Etcd object because an error occurred during retrieval", func() {
-			c.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{})).Return(fmt.Errorf("foo error"))
+			c.EXPECT().Get(ctx, kutil.Key(namespace, name), gomock.AssignableToTypeOf(&druidv1alpha1.Etcd{}), nil).Return(fmt.Errorf("foo error"))
 
 			kutil.SetMetaDataAnnotation(statefulset, common.GardenerOwnedBy, key)
 
-			etcds := mapper.Map(statefulset)
+			etcds := mapper.Map(ctx, logr.Discard(), nil, statefulset)
 
 			Expect(etcds).To(BeEmpty())
 		})
 
 		It("should not find related Etcd object because owner annotation is not present", func() {
-			etcds := mapper.Map(statefulset)
+			etcds := mapper.Map(ctx, logr.Discard(), nil, statefulset)
 
 			Expect(etcds).To(BeEmpty())
 		})
 
 		It("should not find related Etcd object because map is called with wrong object", func() {
-			etcds := mapper.Map(nil)
+			etcds := mapper.Map(ctx, logr.Discard(), nil, nil)
 
 			Expect(etcds).To(BeEmpty())
 		})
