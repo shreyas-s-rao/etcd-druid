@@ -45,6 +45,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	eventsv1beta1 "k8s.io/api/events/v1beta1"
 	rbac "k8s.io/api/rbac/v1"
@@ -87,8 +88,11 @@ const (
 	EtcdReady = true
 	// DefaultAutoCompactionRetention defines the default auto-compaction-retention length for etcd.
 	DefaultAutoCompactionRetention = "30m"
-	// Annotation set by human operator in order to stop reconciliation
+	// IgnoreReconciliationAnnotation is the annotation set by human operator in order to stop reconciliation
 	IgnoreReconciliationAnnotation = "druid.gardener.cloud/ignore-reconciliation"
+	// PVCDeletionConfirmationAnnotation is the annotation required on the Etcd resource
+	// in order to allow druid to delete the PVC(s) used by the etcd pods
+	PVCDeletionConfirmationAnnotation = "confirmation.druid.gardener.cloud/pvc-deletion"
 )
 
 var (
@@ -232,7 +236,7 @@ func buildPredicate(ignoreOperationAnnotation bool) predicate.Predicate {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;get;list;watch;patch;update
 
 // Reconcile reconciles the etcd.
@@ -268,6 +272,8 @@ func (r *EtcdReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			Requeue: false,
 		}, nil
 	}
+
+	r.shouldRollPVCs()
 
 	return r.reconcile(ctx, etcd)
 }
@@ -671,7 +677,6 @@ func checkEtcdAnnotations(annotations map[string]string, etcd metav1.Object) boo
 	}
 	return ownedBy == fmt.Sprintf("%s/%s", etcd.GetNamespace(), etcd.GetName()) &&
 		ownerType == strings.ToLower(etcdGVK.Kind)
-
 }
 
 func (r *EtcdReconciler) getMapFromEtcd(etcd *druidv1alpha1.Etcd, disableEtcdServiceAccountAutomount bool) (map[string]interface{}, error) {
@@ -793,4 +798,26 @@ func (r *EtcdReconciler) updateEtcdStatusAsNotReady(ctx context.Context, etcd *d
 		return nil
 	})
 	return etcd, err
+}
+
+func (r *EtcdReconciler) shouldRollPVCs(ctx context.Context, etcd *druidv1alpha1.Etcd) (bool, error) {
+	if oldEtcd.Spec.Storage.StorageCapacity != newEtcd.Spec.Storage.StorageCapacity || oldEtcd.Spec.Storage.StorageClass != newEtcd.Spec.Storage.StorageClass {
+		if val, ok := newEtcd.Annotations[PVCDeletionConfirmationAnnotation]; ok && val == "true" {
+			return true, nil
+		} else {
+			return false, fmt.Errorf("must have a %s annotation to delete", PVCDeletionConfirmationAnnotation)
+		}
+	}
+	return false, nil
+}
+
+func (r *EtcdReconciler) selectPVCsToRoll(ctx context.Context, etcd *druidv1alpha1.Etcd) ([]v1.PersistentVolumeClaim, error) {
+	pvcList := &v1.PersistentVolumeClaimList{}
+
+	labels := componentsts.GetCommonLabels(etcd.Name)
+	if err := r.Client.List(ctx, pvcList, client.InNamespace(etcd.Namespace), client.MatchingLabels(labels)); err != nil {
+		return nil, err
+	}
+
+	return pvcs, nil
 }

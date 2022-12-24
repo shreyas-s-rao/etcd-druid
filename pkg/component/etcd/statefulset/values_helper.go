@@ -50,8 +50,8 @@ func GenerateValues(
 	peerTLSChangedToEnabled bool) Values {
 
 	volumeClaimTemplateName := etcd.Name
-	if etcd.Spec.VolumeClaimTemplate != nil && len(*etcd.Spec.VolumeClaimTemplate) != 0 {
-		volumeClaimTemplateName = *etcd.Spec.VolumeClaimTemplate
+	if etcd.Spec.Storage.VolumeClaimTemplate != nil && len(*etcd.Spec.Storage.VolumeClaimTemplate) != 0 {
+		volumeClaimTemplateName = *etcd.Spec.Storage.VolumeClaimTemplate
 	}
 
 	values := Values{
@@ -77,8 +77,8 @@ func GenerateValues(
 		FullSnapLeaseName:  utils.GetFullSnapshotLeaseName(etcd),
 		DeltaSnapLeaseName: utils.GetDeltaSnapshotLeaseName(etcd),
 
-		StorageCapacity: etcd.Spec.StorageCapacity,
-		StorageClass:    etcd.Spec.StorageClass,
+		StorageCapacity: etcd.Spec.Storage.StorageCapacity,
+		StorageClass:    etcd.Spec.Storage.StorageClass,
 
 		ClientUrlTLS: etcd.Spec.Etcd.ClientUrlTLS,
 		PeerUrlTLS:   etcd.Spec.Etcd.PeerUrlTLS,

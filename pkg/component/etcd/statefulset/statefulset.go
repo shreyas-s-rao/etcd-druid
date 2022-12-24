@@ -66,7 +66,10 @@ func New(c client.Client, logger logr.Logger, values Values) Interface {
 // Destroy deletes the StatefulSet
 func (c *component) Destroy(ctx context.Context) error {
 	sts := c.emptyStatefulset()
-	if err := client.IgnoreNotFound(c.client.Delete(ctx, sts)); err != nil {
+	orphan := metav1.DeletePropagationOrphan
+	if err := client.IgnoreNotFound(c.client.Delete(ctx, sts, &client.DeleteOptions{
+		PropagationPolicy: &orphan,
+	})); err != nil {
 		return err
 	}
 	return nil
@@ -309,7 +312,7 @@ func (c *component) createOrPatch(ctx context.Context, sts *appsv1.StatefulSet, 
 		Replicas:    &replicas,
 		ServiceName: c.values.PeerServiceName,
 		Selector: &metav1.LabelSelector{
-			MatchLabels: getCommonLabels(&c.values),
+			MatchLabels: GetCommonLabels(c.values.Name),
 		},
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
@@ -432,15 +435,15 @@ func (c *component) emptyStatefulset() *appsv1.StatefulSet {
 	}
 }
 
-func getCommonLabels(val *Values) map[string]string {
+func GetCommonLabels(instance string) map[string]string {
 	return map[string]string{
 		"name":     "etcd",
-		"instance": val.Name,
+		"instance": instance,
 	}
 }
 
 func getObjectMeta(val *Values, sts *appsv1.StatefulSet) metav1.ObjectMeta {
-	labels := utils.MergeStringMaps(getCommonLabels(val), val.Labels)
+	labels := utils.MergeStringMaps(GetCommonLabels(val.Name), val.Labels)
 	annotations := getStsAnnotations(val, sts)
 	ownerRefs := []metav1.OwnerReference{
 		{

@@ -1254,8 +1254,8 @@ func validateEtcd(instance *druidv1alpha1.Etcd, s *appsv1.StatefulSet, cm *corev
 								"FailureThreshold":    Equal(int32(5)),
 							})),
 							"VolumeMounts": MatchAllElements(volumeMountIterator, Elements{
-								*instance.Spec.VolumeClaimTemplate: MatchFields(IgnoreExtras, Fields{
-									"Name":      Equal(*instance.Spec.VolumeClaimTemplate),
+								*instance.Spec.Storage.VolumeClaimTemplate: MatchFields(IgnoreExtras, Fields{
+									"Name":      Equal(*instance.Spec.Storage.VolumeClaimTemplate),
 									"MountPath": Equal("/var/etcd/data/"),
 								}),
 								"client-url-ca-etcd": MatchFields(IgnoreExtras, Fields{
@@ -1329,8 +1329,8 @@ func validateEtcd(instance *druidv1alpha1.Etcd, s *appsv1.StatefulSet, cm *corev
 							"Image":           Equal(*instance.Spec.Backup.Image),
 							"ImagePullPolicy": Equal(corev1.PullIfNotPresent),
 							"VolumeMounts": MatchElements(volumeMountIterator, IgnoreExtras, Elements{
-								*instance.Spec.VolumeClaimTemplate: MatchFields(IgnoreExtras, Fields{
-									"Name":      Equal(*instance.Spec.VolumeClaimTemplate),
+								*instance.Spec.Storage.VolumeClaimTemplate: MatchFields(IgnoreExtras, Fields{
+									"Name":      Equal(*instance.Spec.Storage.VolumeClaimTemplate),
 									"MountPath": Equal("/var/etcd/data"),
 								}),
 								"etcd-config-file": MatchFields(IgnoreExtras, Fields{
@@ -1445,18 +1445,18 @@ func validateEtcd(instance *druidv1alpha1.Etcd, s *appsv1.StatefulSet, cm *corev
 				}),
 			}),
 			"VolumeClaimTemplates": MatchAllElements(pvcIterator, Elements{
-				*instance.Spec.VolumeClaimTemplate: MatchFields(IgnoreExtras, Fields{
+				*instance.Spec.Storage.VolumeClaimTemplate: MatchFields(IgnoreExtras, Fields{
 					"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-						"Name": Equal(*instance.Spec.VolumeClaimTemplate),
+						"Name": Equal(*instance.Spec.Storage.VolumeClaimTemplate),
 					}),
 					"Spec": MatchFields(IgnoreExtras, Fields{
-						"StorageClassName": PointTo(Equal(*instance.Spec.StorageClass)),
+						"StorageClassName": PointTo(Equal(*instance.Spec.Storage.StorageClass)),
 						"AccessModes": MatchAllElements(accessModeIterator, Elements{
 							"ReadWriteOnce": Equal(corev1.ReadWriteOnce),
 						}),
 						"Resources": MatchFields(IgnoreExtras, Fields{
 							"Requests": MatchKeys(IgnoreExtras, Keys{
-								corev1.ResourceStorage: Equal(*instance.Spec.StorageCapacity),
+								corev1.ResourceStorage: Equal(*instance.Spec.Storage.StorageCapacity),
 							}),
 						}),
 					}),
@@ -2039,11 +2039,15 @@ func getEtcd(name, namespace string, tlsEnabled bool) *druidv1alpha1.Etcd {
 					"instance": name,
 				},
 			},
-			Replicas:            1,
-			StorageCapacity:     &storageCapacity,
-			StorageClass:        &storageClass,
-			PriorityClassName:   &priorityClassName,
-			VolumeClaimTemplate: &volumeClaimTemplateName,
+			Replicas:          1,
+			PriorityClassName: &priorityClassName,
+
+			Storage: druidv1alpha1.StorageConfig{
+				StorageCapacity:     &storageCapacity,
+				StorageClass:        &storageClass,
+				VolumeClaimTemplate: &volumeClaimTemplateName,
+			},
+
 			Backup: druidv1alpha1.BackupSpec{
 				Image:                    &imageBR,
 				Port:                     &backupPort,

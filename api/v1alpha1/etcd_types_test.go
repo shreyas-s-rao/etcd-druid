@@ -150,9 +150,12 @@ func getEtcd(name, namespace string) *Etcd {
 					"name": name,
 				},
 			},
-			Replicas:        1,
-			StorageClass:    &storageClass,
-			StorageCapacity: &storageCapacity,
+			Replicas: 1,
+
+			Storage: StorageConfig{
+				StorageClass:    &storageClass,
+				StorageCapacity: &storageCapacity,
+			},
 
 			Backup: BackupSpec{
 				Image:                    &imageBR,

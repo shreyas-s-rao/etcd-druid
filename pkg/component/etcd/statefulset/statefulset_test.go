@@ -742,11 +742,15 @@ func getEtcd(name, namespace string, tlsEnabled bool, replicas int32, storagePro
 			Labels: map[string]string{
 				"foo": "bar",
 			},
-			Replicas:            replicas,
-			StorageCapacity:     &storageCapacity,
-			StorageClass:        &storageClass,
-			PriorityClassName:   &priorityClassName,
-			VolumeClaimTemplate: &volumeClaimTemplateName,
+			Replicas:          replicas,
+			PriorityClassName: &priorityClassName,
+
+			Storage: druidv1alpha1.StorageConfig{
+				StorageCapacity:     &storageCapacity,
+				StorageClass:        &storageClass,
+				VolumeClaimTemplate: &volumeClaimTemplateName,
+			},
+
 			Backup: druidv1alpha1.BackupSpec{
 				Image:                    &imageBR,
 				Port:                     pointer.Int32Ptr(backupPort),

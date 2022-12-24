@@ -247,6 +247,21 @@ type SchedulingConstraints struct {
 	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 }
 
+// StorageConfig holds the storage-related configuration used for
+// creating the PersistentVolumes that store the etcd data.
+type StorageConfig struct {
+	// StorageClass defines the name of the StorageClass required by the claim.
+	// More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#class-1
+	// +optional
+	StorageClass *string `json:"storageClass,omitempty"`
+	// StorageCapacity defines the size of persistent volume.
+	// +optional
+	StorageCapacity *resource.Quantity `json:"storageCapacity,omitempty"`
+	// VolumeClaimTemplate defines the volume claim template to be created
+	// +optional
+	VolumeClaimTemplate *string `json:"volumeClaimTemplate,omitempty"`
+}
+
 // EtcdSpec defines the desired state of Etcd
 type EtcdSpec struct {
 	// selector is a label query over pods that should match the replica count.
@@ -270,16 +285,8 @@ type EtcdSpec struct {
 	// PriorityClassName is the name of a priority class that shall be used for the etcd pods.
 	// +optional
 	PriorityClassName *string `json:"priorityClassName,omitempty"`
-	// StorageClass defines the name of the StorageClass required by the claim.
-	// More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#class-1
 	// +optional
-	StorageClass *string `json:"storageClass,omitempty"`
-	// StorageCapacity defines the size of persistent volume.
-	// +optional
-	StorageCapacity *resource.Quantity `json:"storageCapacity,omitempty"`
-	// VolumeClaimTemplate defines the volume claim template to be created
-	// +optional
-	VolumeClaimTemplate *string `json:"volumeClaimTemplate,omitempty"`
+	Storage StorageConfig `json:"storage"`
 }
 
 // CrossVersionObjectReference contains enough information to let you identify the referred resource.

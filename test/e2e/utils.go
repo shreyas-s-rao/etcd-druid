@@ -208,7 +208,7 @@ func getDefaultEtcd(name, namespace, container, prefix string, provider TestProv
 
 	etcd.Spec.Common = sharedConfig
 	etcd.Spec.Replicas = int32(replicas)
-	etcd.Spec.StorageCapacity = &storageCapacity
+	etcd.Spec.Storage.StorageCapacity = &storageCapacity
 
 	if provider.Storage != nil {
 		backupStore := defaultBackupStore.DeepCopy()
