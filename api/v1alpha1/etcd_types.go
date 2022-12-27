@@ -380,11 +380,72 @@ type EtcdMemberStatus struct {
 	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
 }
 
+// NamespacedObjectReference
+type NamespacedObjectReference struct {
+	// Name of the object
+	// +required
+	Name string `json:"name,omitempty"`
+	// Namespace in which the object is present
+	// +required
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// EtcdMemberOperationType is a string alias.
+type EtcdOperationType string
+
+// TODO: check if all these types required
+const (
+	// EtcdOperationTypeCreate indicates a 'create' operation.
+	EtcdOperationTypeCreate EtcdOperationType = "Create"
+	// EtcdOperationTypeTriggerFullSnapshot indicates a 'trigger full snapshot' operation.
+	EtcdOperationTypeTriggerFullSnapshot EtcdOperationType = "TriggerFullSnapshot"
+	// EtcdOperationTypeTriggerIncrSnapshot indicates a 'trigger delta snapshot' operation.
+	EtcdOperationTypeTriggerIncrSnapshot EtcdOperationType = "TriggerIncrSnapshot"
+	// EtcdOperationTypeRestoreSingleMemberInMultinode indicates a
+	// 'restore single member in multi-node cluster' operation.
+	EtcdOperationTypeRestoreSingleMemberInMultinode EtcdOperationType = "RestoreSingleMemberinMultinode"
+	// EtcdOperationTypeRestoreSingleNode indicates a 'restore single-node cluster' operation.
+	EtcdOperationTypeRestoreSingleNode EtcdOperationType = "RestoreSingleNode"
+	// EtcdMemberOperationTypeRollPods indicates a 'roll pods' operation.
+	EtcdOperationTypeRollPods EtcdOperationType = "RollPods"
+	// EtcdMemberOperationTypeRollVolumes indicates a 'roll volumes and pods' operation.
+	EtcdOperationTypeRollVolumes EtcdOperationType = "RollVolumes"
+)
+
+// EtcdLastOperation
+type EtcdLastOperation struct {
+	// ID
+	// +required
+	ID string `json:"id,omitempty"`
+	// Description
+	// +optional
+	Description string `json:"description,omitempty"`
+	// LastUpdateTime
+	// +required
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty"`
+	// Type
+	// +required
+	Type EtcdOperationType `json:"type,omitempty"`
+	// Progress
+	// +optional
+	Progress int32 `json:"progress,omitempty"`
+	// State
+	// +required
+	State LastOperationState `json:"state,omitempty"`
+	// Reason
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// TaskID
+	// +optional
+	TaskID *string `json:"taskID,omitempty"`
+}
+
 // EtcdStatus defines the observed state of Etcd.
 type EtcdStatus struct {
 	// ObservedGeneration is the most recent generation observed for this resource.
 	// +optional
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+	// Etcd hold the reference to Etcd object itself.
 	// +optional
 	Etcd *CrossVersionObjectReference `json:"etcd,omitempty"`
 	// Conditions represents the latest available observations of an etcd's current state.
@@ -421,9 +482,15 @@ type EtcdStatus struct {
 	// Members represents the members of the etcd cluster
 	// +optional
 	Members []EtcdMemberStatus `json:"members,omitempty"`
+	// EtcdMembers holds references to the EtcdMembers of the etcd cluster
+	// +optional
+	EtcdMembers []NamespacedObjectReference `json:"etcdMembers,omitempty"`
 	// PeerUrlTLSEnabled captures the state of peer url TLS being enabled for the etcd member(s)
 	// +optional
 	PeerUrlTLSEnabled *bool `json:"peerUrlTLSEnabled,omitempty"`
+	// LastOperation
+	// +optional
+	LastOperation *EtcdLastOperation `json:"lastOperation,omitempty"`
 }
 
 // +genclient
@@ -538,4 +605,192 @@ type EtcdCopyBackupsTaskList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []EtcdCopyBackupsTask `json:"items"`
+}
+
+// EtcdMemberOperationType is a string alias.
+type EtcdMemberOperationType string
+
+const (
+	// EtcdMemberOperationTypeCreate indicates a 'create' operation.
+	EtcdMemberOperationTypeCreate EtcdMemberOperationType = "Create"
+	// EtcdMemberOperationTypePromote indicates a 'member promote' operation.
+	EtcdMemberOperationTypePromote EtcdMemberOperationType = "Promote"
+	// EtcdMemberOperationTypeTriggerFullSnapshot indicates a 'trigger full snapshot' operation.
+	EtcdMemberOperationTypeTriggerFullSnapshot EtcdMemberOperationType = "TriggerFullSnapshot"
+	// EtcdMemberOperationTypeTriggerIncrSnapshot indicates a 'trigger delta snapshot' operation.
+	EtcdMemberOperationTypeTriggerIncrSnapshot EtcdMemberOperationType = "TriggerIncrSnapshot"
+	// EtcdMemberOperationTypeRestore indicates a 'restore' operation.
+	EtcdMemberOperationTypeRestore EtcdMemberOperationType = "Restore"
+	// EtcdMemberOperationTypeDeletePod indicates a 'delete pod' operation.
+	EtcdMemberOperationTypeDeletePod EtcdMemberOperationType = "DeletePod"
+	// EtcdMemberOperationTypeDeleteVolume indicates a 'delete volume and pod' operation.
+	EtcdMemberOperationTypeDeleteVolume EtcdMemberOperationType = "DeleteVolume"
+)
+
+// EtcdMemberOperation
+type EtcdMemberOperation struct {
+	// ID
+	// +required
+	ID string `json:"id,omitempty"`
+	// Type
+	// +required
+	Type EtcdMemberOperationType `json:"type,omitempty"`
+	// Args
+	// +optional
+	Args map[string]string `json:"args,omitempty"`
+}
+
+// EtcdMemberSpec
+type EtcdMemberSpec struct {
+	// PeerTLSEnabled captures the state of peer url TLS being enabled for the etcd member
+	// +optional
+	PeerTLSEnabled *bool `json:"peerTLSEnabled,omitempty"`
+	// Operation captures the operation to be performed on the etcd member
+	// +optional
+	Operation *EtcdMemberOperation `json:"operation,omitempty"`
+	// PVCRef
+	// +optional
+	PVCRef *NamespacedObjectReference `json:"pvcRef,omitempty"`
+}
+
+// EtcdRole is the role of an etcd cluster member.
+type EtcdMemberRole string
+
+const (
+	// EtcdRoleLeader describes the etcd role `Leader`.
+	EtcdMemberRoleLeader EtcdMemberRole = "Leader"
+	// EtcdRoleFollower describes the etcd role `Follower`.
+	EtcdMemberRoleFollower EtcdMemberRole = "Follower"
+	// EtcdRoleLearner describes the etcd role `Learner`.
+	EtcdMemberRoleLearner EtcdMemberRole = "Learner"
+)
+
+// LastOperationState is a string alias.
+type LastOperationState string
+
+const (
+	// LastOperationStateNew indicates that an operation is new an yet to be started.
+	LastOperationStateNew LastOperationState = "New"
+	// LastOperationStateProcessing indicates that an operation is ongoing.
+	LastOperationStateProcessing LastOperationState = "Processing"
+	// LastOperationStateSucceeded indicates that an operation has completed successfully.
+	LastOperationStateSucceeded LastOperationState = "Succeeded"
+	// LastOperationStateError indicates that an operation is completed with errors and will be retried.
+	LastOperationStateError LastOperationState = "Error"
+	// LastOperationStateFailed indicates that an operation is completed with errors and won't be retried.
+	LastOperationStateFailed LastOperationState = "Failed"
+	// LastOperationStatePending indicates that an operation cannot be done now, but will be tried in future.
+	LastOperationStatePending LastOperationState = "Pending"
+	// LastOperationStateAborted indicates that an operation has been aborted.
+	LastOperationStateAborted LastOperationState = "Aborted"
+)
+
+// EtcdMemberLastOperation
+type EtcdMemberLastOperation struct {
+	// ID
+	// +required
+	ID string `json:"id,omitempty"`
+	// Description
+	// +optional
+	Description string `json:"description,omitempty"`
+	// LastUpdateTime
+	// +required
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty"`
+	// Type
+	// +required
+	Type EtcdMemberOperationType `json:"type,omitempty"`
+	// Progress
+	// +optional
+	Progress int32 `json:"progress,omitempty"`
+	// State
+	// +required
+	State LastOperationState `json:"state,omitempty"`
+	// Reason
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// TaskID
+	// +optional
+	TaskID *string `json:"taskID,omitempty"`
+}
+
+// EtcdMemberHealth
+type EtcdMemberHealth struct {
+	HeartbeatTime metav1.Time `json:"heartbeatTime,omitempty"`
+	ValidTill     metav1.Time `json:"validTill,omitempty"`
+}
+
+// SnapshotType
+type SnapshotType string
+
+const (
+	// SnapshotTypeFull
+	SnapshotTypeFull SnapshotType = "Full"
+	// SnapshotTypeIncr
+	SnapshotTypeIncr SnapshotType = "Incr"
+)
+
+type SnapshotStatus struct {
+	// Type
+	// +required
+	Type SnapshotType `json:"type,omitempty"`
+	// Timestamp
+	// +required
+	Timestamp metav1.Time `json:"timestamp,omitempty"`
+	// LastRevision
+	// +required
+	LastRevision int32 `json:"lastRevision,omitempty"`
+}
+
+type EtcdMemberResourceStatus struct {
+	// ID is the ID of the etcd member.
+	// +optional
+	ID *string `json:"id,omitempty"`
+	// Role is the role in the etcd cluster, either `Leader` or `Member`.
+	// +optional
+	Role *EtcdMemberRole `json:"role,omitempty"`
+	// LastOperation
+	// +optional
+	LastOperation *EtcdMemberLastOperation `json:"lastOperation,omitempty"`
+	// Status
+	// +optional
+	Status *EtcdMemberConditionStatus `json:"status,omitempty"`
+	// Health
+	// +optional
+	Health *EtcdMemberHealth `json:"health,omitempty"`
+	// Snapshots
+	// +optional
+	Snapshots []SnapshotStatus `json:"snapshots,omitempty"`
+	// IsPeerTLSEnabled
+	// +optional
+	IsPeerTLSEnabled *bool `json:"isPeerTLSEnabled,omitempty"`
+}
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
+// +kubebuilder:printcolumn:name="Role",type=string,JSONPath=`.status.role`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:printcolumn:name="Full Snapshot Age",type=date,JSONPath=`.status.snapshots[?(@.type=="Full")].timestamp`,priority=1
+// +kubebuilder:printcolumn:name="Delta Snapshot Age",type=date,JSONPath=`.status.snapshots[?(@.type=="Incr")].timestamp`,priority=1
+
+type EtcdMember struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   EtcdMemberSpec           `json:"spec,omitempty"`
+	Status EtcdMemberResourceStatus `json:"status,omitempty"`
+}
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// +kubebuilder:object:root=true
+
+type EtcdMemberList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []EtcdMember `json:"items"`
 }

@@ -26,6 +26,7 @@ import (
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
 	"github.com/gardener/etcd-druid/pkg/common"
 	componentconfigmap "github.com/gardener/etcd-druid/pkg/component/etcd/configmap"
+	componentetcdmember "github.com/gardener/etcd-druid/pkg/component/etcd/etcdmember"
 	componentlease "github.com/gardener/etcd-druid/pkg/component/etcd/lease"
 	componentpdb "github.com/gardener/etcd-druid/pkg/component/etcd/poddisruptionbudget"
 	componentservice "github.com/gardener/etcd-druid/pkg/component/etcd/service"
@@ -376,6 +377,13 @@ func (r *EtcdReconciler) delete(ctx context.Context, etcd *druidv1alpha1.Etcd) (
 		}, err
 	}
 
+	etcdMembersDeployer := componentetcdmember.New(r.Client, etcd.Namespace, componentetcdmember.GenerateValues(etcd))
+	if err := etcdMembersDeployer.Destroy(ctx); err != nil {
+		return ctrl.Result{
+			Requeue: true,
+		}, err
+	}
+
 	if sets.NewString(etcd.Finalizers...).Has(FinalizerName) {
 		logger.Info("Removing finalizer")
 		if err := controllerutils.PatchRemoveFinalizers(ctx, r.Client, etcd, FinalizerName); client.IgnoreNotFound(err) != nil {
@@ -573,7 +581,6 @@ func (r *EtcdReconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, 
 	}
 
 	configMapValues := componentconfigmap.GenerateValues(etcd)
-
 	cmDeployer := componentconfigmap.New(r.Client, etcd.Namespace, configMapValues)
 	if err := cmDeployer.Deploy(ctx); err != nil {
 		return reconcileResult{err: err}
@@ -586,6 +593,12 @@ func (r *EtcdReconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, 
 	}
 	pdbDeployer := componentpdb.New(r.Client, etcd.Namespace, &pdbValues, *k8sversion)
 	if err := pdbDeployer.Deploy(ctx); err != nil {
+		return reconcileResult{err: err}
+	}
+
+	etcdMembersValues := componentetcdmember.GenerateValues(etcd)
+	etcdMembersDeployer := componentetcdmember.New(r.Client, etcd.Namespace, etcdMembersValues)
+	if err := etcdMembersDeployer.Deploy(ctx); err != nil {
 		return reconcileResult{err: err}
 	}
 

@@ -344,7 +344,7 @@ func (c *component) createOrPatch(ctx context.Context, sts *appsv1.StatefulSet, 
 						VolumeMounts: getEtcdVolumeMounts(c.values),
 					},
 					{
-						Name:            "backup-restore",
+						Name:            utils.BackupRestoreContainerName,
 						Image:           c.values.BackupImage,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Command:         c.values.EtcdBackupCommand,
@@ -518,7 +518,7 @@ func getEtcdEnvVars(val Values) []corev1.EnvVar {
 		protocol = "https"
 	}
 
-	endpoint := fmt.Sprintf("%s://%s-local:%d", protocol, val.Name, pointer.Int32Deref(val.BackupPort, defaultBackupPort))
+	endpoint := fmt.Sprintf("%s://%s-local:%d", protocol, val.Name, pointer.Int32Deref(val.BackupPort, DefaultBackupPort))
 
 	return []corev1.EnvVar{
 		getEnvVarFromValue("ENABLE_TLS", strconv.FormatBool(val.BackupTLS != nil)),
@@ -632,7 +632,7 @@ func getBackupPorts(val Values) []corev1.ContainerPort {
 		{
 			Name:          "server",
 			Protocol:      "TCP",
-			ContainerPort: pointer.Int32Deref(val.BackupPort, defaultBackupPort),
+			ContainerPort: pointer.Int32Deref(val.BackupPort, DefaultBackupPort),
 		},
 	}
 }
@@ -861,7 +861,7 @@ func getReadinessHandlerForSingleNode(val Values) corev1.Handler {
 	return corev1.Handler{
 		HTTPGet: &corev1.HTTPGetAction{
 			Path:   "/healthz",
-			Port:   intstr.FromInt(int(pointer.Int32Deref(val.BackupPort, defaultBackupPort))),
+			Port:   intstr.FromInt(int(pointer.Int32Deref(val.BackupPort, DefaultBackupPort))),
 			Scheme: scheme,
 		},
 	}

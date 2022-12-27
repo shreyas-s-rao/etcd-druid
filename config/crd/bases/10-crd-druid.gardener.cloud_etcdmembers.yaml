@@ -1,0 +1,170 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.7.0
+  creationTimestamp: null
+  name: etcdmembers.druid.gardener.cloud
+spec:
+  group: druid.gardener.cloud
+  names:
+    kind: EtcdMember
+    listKind: EtcdMemberList
+    plural: etcdmembers
+    singular: etcdmember
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    - jsonPath: .status.role
+      name: Role
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .status.snapshots[?(@.type=="Full")].timestamp
+      name: Full Snapshot Age
+      priority: 1
+      type: date
+    - jsonPath: .status.snapshots[?(@.type=="Incr")].timestamp
+      name: Delta Snapshot Age
+      priority: 1
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: EtcdMemberSpec
+            properties:
+              operation:
+                description: Operation captures the operation to be performed on the
+                  etcd member
+                properties:
+                  args:
+                    additionalProperties:
+                      type: string
+                    description: Args
+                    type: object
+                  id:
+                    description: ID
+                    type: string
+                  type:
+                    description: Type
+                    type: string
+                type: object
+              peerTLSEnabled:
+                description: PeerTLSEnabled captures the state of peer url TLS being
+                  enabled for the etcd member
+                type: boolean
+              pvcRef:
+                description: PVCRef
+                properties:
+                  name:
+                    description: Name of the object
+                    type: string
+                  namespace:
+                    description: Namespace in which the object is present
+                    type: string
+                type: object
+            type: object
+          status:
+            properties:
+              health:
+                description: Health
+                properties:
+                  heartbeatTime:
+                    format: date-time
+                    type: string
+                  validTill:
+                    format: date-time
+                    type: string
+                type: object
+              id:
+                description: ID is the ID of the etcd member.
+                type: string
+              isPeerTLSEnabled:
+                description: IsPeerTLSEnabled
+                type: boolean
+              lastOperation:
+                description: LastOperation
+                properties:
+                  description:
+                    description: Description
+                    type: string
+                  id:
+                    description: ID
+                    type: string
+                  lastUpdateTime:
+                    description: LastUpdateTime
+                    format: date-time
+                    type: string
+                  progress:
+                    description: Progress
+                    format: int32
+                    type: integer
+                  reason:
+                    description: Reason
+                    type: string
+                  state:
+                    description: State
+                    type: string
+                  taskID:
+                    description: TaskID
+                    type: string
+                  type:
+                    description: Type
+                    type: string
+                type: object
+              role:
+                description: Role is the role in the etcd cluster, either `Leader`
+                  or `Member`.
+                type: string
+              snapshots:
+                description: Snapshots
+                items:
+                  properties:
+                    lastRevision:
+                      description: LastRevision
+                      format: int32
+                      type: integer
+                    timestamp:
+                      description: Timestamp
+                      format: date-time
+                      type: string
+                    type:
+                      description: Type
+                      type: string
+                  type: object
+                type: array
+              status:
+                description: Status
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	defaultBackupPort              int32 = 8080
+	DefaultBackupPort              int32 = 8080
 	defaultServerPort              int32 = 2380
 	defaultClientPort              int32 = 2379
 	defaultQuota                   int64 = 8 * 1024 * 1024 * 1024 // 8Gi
