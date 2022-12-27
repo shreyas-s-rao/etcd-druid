@@ -4,6 +4,7 @@
 resources:
   - bases/10-crd-druid.gardener.cloud_etcds.yaml
   - bases/10-crd-druid.gardener.cloud_etcdcopybackupstasks.yaml
+  - bases/10-crd-druid.gardener.cloud_etcdmembers.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 # the following config is for teaching kustomize how to do kustomization for CRDs.

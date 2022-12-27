@@ -1,0 +1,8 @@
+apiVersion: druid.gardener.cloud/v1alpha1
+kind: EtcdMember
+metadata:
+  name: etcd-test-0
+spec:
+  operation:
+    id: "13"
+    type: DeleteVolume

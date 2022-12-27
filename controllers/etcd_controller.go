@@ -26,6 +26,7 @@ import (
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
 	"github.com/gardener/etcd-druid/pkg/common"
 	componentconfigmap "github.com/gardener/etcd-druid/pkg/component/etcd/configmap"
+	componentetcdmember "github.com/gardener/etcd-druid/pkg/component/etcd/etcdmember"
 	componentlease "github.com/gardener/etcd-druid/pkg/component/etcd/lease"
 	componentpdb "github.com/gardener/etcd-druid/pkg/component/etcd/poddisruptionbudget"
 	componentservice "github.com/gardener/etcd-druid/pkg/component/etcd/service"
@@ -42,9 +43,11 @@ import (
 	gardenercomponent "github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
+	gardenerretry "github.com/gardener/gardener/pkg/utils/retry"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	eventsv1beta1 "k8s.io/api/events/v1beta1"
 	rbac "k8s.io/api/rbac/v1"
@@ -87,13 +90,13 @@ const (
 	EtcdReady = true
 	// DefaultAutoCompactionRetention defines the default auto-compaction-retention length for etcd.
 	DefaultAutoCompactionRetention = "30m"
-	// Annotation set by human operator in order to stop reconciliation
+	// IgnoreReconciliationAnnotation set by human operator in order to stop reconciliation
 	IgnoreReconciliationAnnotation = "druid.gardener.cloud/ignore-reconciliation"
 )
 
 var (
 	// DefaultTimeout is the default timeout for retry operations.
-	DefaultTimeout = 1 * time.Minute
+	DefaultTimeout = 90 * time.Second
 )
 
 // reconcileResult captures the result of a reconciliation run.
@@ -206,7 +209,8 @@ func (r *EtcdReconciler) SetupWithManager(mgr ctrl.Manager, workers int, ignoreO
 	if ignoreOperationAnnotation {
 		builder = builder.Owns(&corev1.Service{}).
 			Owns(&corev1.ConfigMap{}).
-			Owns(&appsv1.StatefulSet{})
+			Owns(&appsv1.StatefulSet{}).
+			Owns(&druidv1alpha1.EtcdMember{})
 	}
 	return builder.Complete(r)
 }
@@ -232,7 +236,7 @@ func buildPredicate(ignoreOperationAnnotation bool) predicate.Predicate {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;get;list;watch;patch;update
 
 // Reconcile reconciles the etcd.
@@ -300,7 +304,7 @@ func (r *EtcdReconciler) reconcile(ctx context.Context, etcd *druidv1alpha1.Etcd
 		}, err
 	}
 
-	if err = r.removeOperationAnnotation(ctx, logger, etcd); err != nil {
+	if err = r.removeOperationAnnotation(ctx, etcd); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -371,6 +375,13 @@ func (r *EtcdReconciler) delete(ctx context.Context, etcd *druidv1alpha1.Etcd) (
 	}
 	pdbDeployer := componentpdb.New(r.Client, etcd.Namespace, &pdbValues, *k8sversion)
 	if err := pdbDeployer.Destroy(ctx); err != nil {
+		return ctrl.Result{
+			Requeue: true,
+		}, err
+	}
+
+	etcdMembersDeployer := componentetcdmember.New(r.Client, etcd.Namespace, componentetcdmember.GenerateValues(etcd))
+	if err := etcdMembersDeployer.Destroy(ctx); err != nil {
 		return ctrl.Result{
 			Requeue: true,
 		}, err
@@ -573,7 +584,6 @@ func (r *EtcdReconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, 
 	}
 
 	configMapValues := componentconfigmap.GenerateValues(etcd)
-
 	cmDeployer := componentconfigmap.New(r.Client, etcd.Namespace, configMapValues)
 	if err := cmDeployer.Deploy(ctx); err != nil {
 		return reconcileResult{err: err}
@@ -586,6 +596,12 @@ func (r *EtcdReconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, 
 	}
 	pdbDeployer := componentpdb.New(r.Client, etcd.Namespace, &pdbValues, *k8sversion)
 	if err := pdbDeployer.Deploy(ctx); err != nil {
+		return reconcileResult{err: err}
+	}
+
+	etcdMembersValues := componentetcdmember.GenerateValues(etcd)
+	etcdMembersDeployer := componentetcdmember.New(r.Client, etcd.Namespace, etcdMembersValues)
+	if err := etcdMembersDeployer.Deploy(ctx); err != nil {
 		return reconcileResult{err: err}
 	}
 
@@ -613,8 +629,8 @@ func (r *EtcdReconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, 
 	if err != nil {
 		return reconcileResult{err: err}
 	}
-
 	peerUrlTLSChangedToEnabled := isPeerTLSIsChangedToEnabled(peerTLSEnabled, configMapValues)
+
 	statefulSetValues := statefulset.GenerateValues(etcd,
 		&serviceValues.ClientPort,
 		&serviceValues.ServerPort,
@@ -631,8 +647,14 @@ func (r *EtcdReconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, 
 		deployWaiter = gardenercomponent.OpWaiter(stsDeployer)
 	)
 
-	if err = deployWaiter.Deploy(ctx); err != nil {
+	// TODO: combine rolling of volumes with any sts spec change which causes rolling of pods
+	if err := r.checkAndPerformOperationRollVolumes(ctx, etcd, stsDeployer, deployWaiter); err != nil {
 		return reconcileResult{err: err}
+	} else {
+		// successful RollVolumes operation would have already deployed the statefulset
+		if err = deployWaiter.Deploy(ctx); err != nil {
+			return reconcileResult{err: err}
+		}
 	}
 
 	sts, err := stsDeployer.Get(ctx)
@@ -776,9 +798,9 @@ func (r *EtcdReconciler) updateEtcdStatus(ctx context.Context, etcd *druidv1alph
 	})
 }
 
-func (r *EtcdReconciler) removeOperationAnnotation(ctx context.Context, logger logr.Logger, etcd *druidv1alpha1.Etcd) error {
+func (r *EtcdReconciler) removeOperationAnnotation(ctx context.Context, etcd *druidv1alpha1.Etcd) error {
 	if _, ok := etcd.Annotations[v1beta1constants.GardenerOperation]; ok {
-		logger.Info("Removing operation annotation")
+		r.logger.Info("Removing operation annotation")
 		withOpAnnotation := etcd.DeepCopy()
 		delete(etcd.Annotations, v1beta1constants.GardenerOperation)
 		return r.Patch(ctx, etcd, client.MergeFrom(withOpAnnotation))
@@ -793,4 +815,289 @@ func (r *EtcdReconciler) updateEtcdStatusAsNotReady(ctx context.Context, etcd *d
 		return nil
 	})
 	return etcd, err
+}
+
+func (r *EtcdReconciler) getEtcdMembers(ctx context.Context, etcd *druidv1alpha1.Etcd) ([]*druidv1alpha1.EtcdMember, error) {
+	var (
+		etcdMembers []*druidv1alpha1.EtcdMember
+	)
+
+	for _, etcdMemberRef := range etcd.Status.EtcdMembers {
+		etcdMember := componentetcdmember.EmptyEtcdMember(etcdMemberRef.Name, etcdMemberRef.Namespace)
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(etcdMember), etcdMember); err != nil {
+			return nil, err
+		}
+		etcdMembers = append(etcdMembers, etcdMember)
+	}
+
+	return etcdMembers, nil
+}
+
+func (r *EtcdReconciler) hasPVCDeletionConfirmationAnnotation(ctx context.Context, etcd *druidv1alpha1.Etcd) bool {
+	if val, ok := etcd.Annotations[common.PVCDeletionConfirmationAnnotation]; ok && val == "true" {
+		return true
+	}
+	return false
+	// TODO:
+	// return fmt.Errorf("etcd resource must have annotation %s=true in order to change storage-related specs", common.PVCDeletionConfirmationAnnotation)
+}
+
+func (r *EtcdReconciler) getSortedEtcdMembers(ctx context.Context, etcdMembers []*druidv1alpha1.EtcdMember) []*druidv1alpha1.EtcdMember {
+	var (
+		sortedMembers []*druidv1alpha1.EtcdMember
+		sortingOrder  = []druidv1alpha1.EtcdMemberConditionStatus{
+			druidv1alpha1.EtcdMemberStatusUnknown,
+			druidv1alpha1.EtcdMemberStatusNotReady,
+			druidv1alpha1.EtcdMemberStatusReady,
+		}
+	)
+
+	// add members without any status first
+	for _, member := range etcdMembers {
+		if member.Status.Status == nil {
+			sortedMembers = append(sortedMembers, member)
+		}
+	}
+	for _, etcdMemberStatus := range sortingOrder {
+		for _, member := range etcdMembers {
+			if member.Status.Status != nil && *member.Status.Status == etcdMemberStatus {
+				sortedMembers = append(sortedMembers, member)
+			}
+		}
+	}
+
+	return sortedMembers
+}
+
+func (r *EtcdReconciler) selectEtcdMembersToRollVolumes(ctx context.Context, etcd *druidv1alpha1.Etcd, etcdMembers []*druidv1alpha1.EtcdMember) ([]*druidv1alpha1.EtcdMember, error) {
+	var (
+		selectedEtcdMembers []*druidv1alpha1.EtcdMember
+	)
+
+	for _, etcdMember := range etcdMembers {
+		if etcdMember.Spec.PVCRef != nil {
+			pvc := &v1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      etcdMember.Spec.PVCRef.Name,
+					Namespace: etcdMember.Spec.PVCRef.Namespace,
+				},
+			}
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil {
+				return nil, err
+			}
+			if err := r.compareStorageSpecs(ctx, etcd, pvc); err != nil {
+				selectedEtcdMembers = append(selectedEtcdMembers, etcdMember)
+			}
+		}
+	}
+
+	return selectedEtcdMembers, nil
+}
+
+// compareStorageSpecs returns nil error if storage-related specs in the Etcd resource match the
+// specs of the PersistentVolumeClaim.
+func (r *EtcdReconciler) compareStorageSpecs(ctx context.Context, etcd *druidv1alpha1.Etcd, pvc *v1.PersistentVolumeClaim) error {
+	if etcd.Spec.StorageCapacity != nil {
+		if pvc.Spec.Resources.Requests.Storage() != nil && pvc.Spec.Resources.Requests.Storage().Cmp(*etcd.Spec.StorageCapacity) != 0 {
+			return fmt.Errorf("storage capacity mismatch")
+		}
+	}
+
+	if etcd.Spec.StorageClass != nil {
+		if pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != *etcd.Spec.StorageClass {
+			return fmt.Errorf("storage class mismatch")
+		}
+	}
+
+	if etcd.Spec.VolumeClaimTemplate != nil {
+		tokens := strings.Split(pvc.GetName(), "-")
+		claimName := strings.Join(tokens[:2], "-")
+		if claimName != *etcd.Spec.VolumeClaimTemplate {
+			return fmt.Errorf("volume claim template name mismatch")
+		}
+	}
+
+	return nil
+}
+
+func (r *EtcdReconciler) removeConfirmationAnnotation(ctx context.Context, etcd *druidv1alpha1.Etcd) error {
+	if _, ok := etcd.Annotations[common.PVCDeletionConfirmationAnnotation]; ok {
+		r.logger.Info("Removing PVC deletion confirmation annotation")
+		withConfirmationAnnotation := etcd.DeepCopy()
+		delete(etcd.Annotations, common.PVCDeletionConfirmationAnnotation)
+		return r.Patch(ctx, etcd, client.MergeFrom(withConfirmationAnnotation))
+	}
+	return nil
+}
+
+func (r *EtcdReconciler) addEtcdMemberOperation(ctx context.Context, etcdMember *druidv1alpha1.EtcdMember, operationType druidv1alpha1.EtcdMemberOperationType) error {
+	var (
+		operationIDLength = 6
+	)
+
+	operationID := utils.GetRandomAlphaNumericString(operationIDLength)
+
+	if specUpdateAllowed, err := componentetcdmember.IsEtcdMemberSpecUpdateAllowed(etcdMember); err != nil {
+		return err
+	} else {
+		if specUpdateAllowed {
+			if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, r.Client, etcdMember, func() error {
+				if etcdMember.Annotations == nil {
+					etcdMember.Annotations = map[string]string{
+						common.PVCDeletionConfirmationAnnotation: "true",
+					}
+				} else {
+					etcdMember.Annotations[common.PVCDeletionConfirmationAnnotation] = "true"
+				}
+				etcdMember.Spec.Operation = &druidv1alpha1.EtcdMemberOperation{
+					ID:   operationID,
+					Type: operationType,
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *EtcdReconciler) waitForOperationToSucceed(ctx context.Context, etcdMember *druidv1alpha1.EtcdMember, operationType druidv1alpha1.EtcdMemberOperationType) error {
+	return gardenerretry.UntilTimeout(ctx, DefaultInterval, DefaultTimeout, func(ctx context.Context) (bool, error) {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(etcdMember), etcdMember); err != nil {
+			if apierrors.IsNotFound(err) {
+				return gardenerretry.SevereError(err)
+			}
+			return gardenerretry.MinorError(err)
+		}
+		if etcdMember.Status.LastOperation == nil {
+			return gardenerretry.MinorError(fmt.Errorf("lastOperation empty"))
+		}
+		if etcdMember.Status.LastOperation.Type != operationType || etcdMember.Status.LastOperation.ID != etcdMember.Spec.Operation.ID || etcdMember.Status.LastOperation.Type != etcdMember.Spec.Operation.Type {
+			return gardenerretry.MinorError(fmt.Errorf("lastOperation not updated yet"))
+		}
+		if etcdMember.Status.LastOperation.State != druidv1alpha1.LastOperationStateSucceeded {
+			return gardenerretry.MinorError(fmt.Errorf("lastOperation state not yet succeeded"))
+		}
+		return gardenerretry.Ok()
+	})
+}
+
+func (r *EtcdReconciler) waitForStorageSpecsToMatch(ctx context.Context, etcd *druidv1alpha1.Etcd, pvc *v1.PersistentVolumeClaim) error {
+	return gardenerretry.UntilTimeout(ctx, DefaultInterval, DefaultTimeout, func(ctx context.Context) (bool, error) {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(pvc), pvc); err != nil {
+			if apierrors.IsNotFound(err) {
+				return gardenerretry.SevereError(err)
+			}
+			return gardenerretry.MinorError(err)
+		}
+		if err := r.compareStorageSpecs(ctx, etcd, pvc); err != nil {
+			return gardenerretry.MinorError(fmt.Errorf("PVC spec does not match Etcd storage-related specs"))
+		}
+		return gardenerretry.Ok()
+	})
+}
+
+func getPodCondition(conditions []v1.PodCondition, conditionType v1.PodConditionType) *v1.PodCondition {
+	for _, cond := range conditions {
+		if cond.Type == conditionType {
+			return &cond
+		}
+	}
+	return nil
+}
+
+func (r *EtcdReconciler) waitForPodToBeReady(ctx context.Context, podName, podNamespace string, timeout time.Duration) error {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: podNamespace,
+		},
+	}
+	return gardenerretry.UntilTimeout(ctx, DefaultInterval, DefaultTimeout, func(ctx context.Context) (bool, error) {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(pod), pod); err != nil {
+			if apierrors.IsNotFound(err) {
+				return gardenerretry.MinorError(err)
+			}
+			return gardenerretry.SevereError(err)
+		}
+		if pod.Status.Phase != v1.PodRunning {
+			return gardenerretry.MinorError(fmt.Errorf("pod is not running yet"))
+		}
+		if cond := getPodCondition(pod.Status.Conditions, v1.ContainersReady); cond == nil || cond.Status != v1.ConditionTrue {
+			return gardenerretry.MinorError(fmt.Errorf("containers are not ready yet"))
+		}
+		if cond := getPodCondition(pod.Status.Conditions, v1.PodReady); cond == nil || cond.Status != v1.ConditionTrue {
+			return gardenerretry.MinorError(fmt.Errorf("pod is not ready yet"))
+		}
+		return gardenerretry.Ok()
+	})
+}
+
+func (r *EtcdReconciler) performOperationRollPVCsAndWait(ctx context.Context, etcd *druidv1alpha1.Etcd) error {
+	etcdMembers, err := r.getEtcdMembers(ctx, etcd)
+	if err != nil {
+		return err
+	}
+
+	etcdMembersToRollVolumes, err := r.selectEtcdMembersToRollVolumes(ctx, etcd, etcdMembers)
+	if err != nil {
+		return err
+	}
+
+	sortedEtcdMembersToRollVolumes := r.getSortedEtcdMembers(ctx, etcdMembersToRollVolumes)
+
+	for _, member := range sortedEtcdMembersToRollVolumes {
+		if err := r.addEtcdMemberOperation(ctx, member, druidv1alpha1.EtcdMemberOperationTypeDeleteVolume); err != nil {
+			return err
+		}
+
+		if err := r.waitForOperationToSucceed(ctx, member, druidv1alpha1.EtcdMemberOperationTypeDeleteVolume); err != nil {
+			return fmt.Errorf("Operation %s with ID %s did not succeed for PVC %s: %v", member.Spec.Operation.ID, member.Spec.Operation.Type, member.Spec.PVCRef.Name, err)
+		}
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      member.Spec.PVCRef.Name,
+				Namespace: member.Spec.PVCRef.Namespace,
+			},
+		}
+		if err := r.waitForStorageSpecsToMatch(ctx, etcd, pvc); err != nil {
+			return fmt.Errorf("Operation %s with ID %s did not succeed for PVC %s: storage-specs mismatch: %v", member.Spec.Operation.ID, member.Spec.Operation.Type, member.Spec.PVCRef.Name, err)
+		}
+
+		if err := r.waitForPodToBeReady(ctx, member.Name, member.Namespace, 5*time.Minute); err != nil {
+			return fmt.Errorf("Operation %s with ID %s did not succeed for member %s: pod did not become ready: %v", member.Spec.Operation.ID, member.Spec.Operation.Type, member.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (r *EtcdReconciler) checkAndPerformOperationRollVolumes(ctx context.Context, etcd *druidv1alpha1.Etcd, stsDeployer componentsts.Interface, stsDeployWaiter gardenercomponent.Deployer) error {
+	if r.hasPVCDeletionConfirmationAnnotation(ctx, etcd) {
+		if err := r.removeConfirmationAnnotation(ctx, etcd); err != nil {
+			return err
+		}
+
+		if err := stsDeployer.UpdateStatefulsetUpdateStrategy(ctx, appsv1.OnDeleteStatefulSetStrategyType); err != nil {
+			return err
+		}
+
+		deleteOptions := []client.DeleteOption{
+			client.PropagationPolicy(metav1.DeletePropagationOrphan),
+		}
+		if err := stsDeployer.DestroyWithDeleteOptions(ctx, deleteOptions); err != nil {
+			return err
+		}
+
+		if err := stsDeployWaiter.Deploy(ctx); err != nil {
+			return err
+		}
+
+		if err := r.performOperationRollPVCsAndWait(ctx, etcd); err != nil {
+			return err
+		}
+	}
+	return nil
 }

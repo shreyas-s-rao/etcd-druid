@@ -25,4 +25,7 @@ const (
 	GardenerOwnedBy = "gardener.cloud/owned-by"
 	// GardenerOwnerType is a constant for an annotation on a resource that describes the type of owner resource.
 	GardenerOwnerType = "gardener.cloud/owner-type"
+	// PVCDeletionConfirmationAnnotation is the annotation required on the Etcd resource
+	// in order to allow druid to delete the PVC(s) used by the etcd pods
+	PVCDeletionConfirmationAnnotation = "confirmation.druid.gardener.cloud/pvc-deletion"
 )

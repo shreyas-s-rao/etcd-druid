@@ -55,6 +55,11 @@ func GetOrdinalPodName(etcd *druidv1alpha1.Etcd, order int) string {
 	return fmt.Sprintf("%s-%d", etcd.Name, order)
 }
 
+// GetOrdinalEtcdMemberName returns the EtcdMember name based on the order
+func GetOrdinalEtcdMemberName(etcd *druidv1alpha1.Etcd, order int) string {
+	return fmt.Sprintf("%s-%d", etcd.Name, order)
+}
+
 // GetDeltaSnapshotLeaseName returns the name of the delta snapshot lease based on the given `etcd` object.
 func GetDeltaSnapshotLeaseName(etcd *druidv1alpha1.Etcd) string {
 	return fmt.Sprintf("%s-delta-snap", etcd.Name)

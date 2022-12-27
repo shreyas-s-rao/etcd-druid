@@ -23,6 +23,7 @@ import (
 
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
 	"github.com/gardener/etcd-druid/pkg/utils"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	gardenercomponent "github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/utils/flow"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
@@ -44,6 +45,10 @@ type Interface interface {
 	gardenercomponent.DeployWaiter
 	// Get gets the etcd StatefulSet.
 	Get(context.Context) (*appsv1.StatefulSet, error)
+	// UpdateStatefulsetUpdateStrategy updates the etcd statefulset's update strategy.
+	UpdateStatefulsetUpdateStrategy(context.Context, appsv1.StatefulSetUpdateStrategyType) error
+	// DestroyWithDeleteOptions destroys the already deployed statefulset with the given DeleteOptions.
+	DestroyWithDeleteOptions(context.Context, []client.DeleteOption) error
 }
 
 type component struct {
@@ -344,7 +349,7 @@ func (c *component) createOrPatch(ctx context.Context, sts *appsv1.StatefulSet, 
 						VolumeMounts: getEtcdVolumeMounts(c.values),
 					},
 					{
-						Name:            "backup-restore",
+						Name:            utils.BackupRestoreContainerName,
 						Image:           c.values.BackupImage,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Command:         c.values.EtcdBackupCommand,
@@ -518,7 +523,7 @@ func getEtcdEnvVars(val Values) []corev1.EnvVar {
 		protocol = "https"
 	}
 
-	endpoint := fmt.Sprintf("%s://%s-local:%d", protocol, val.Name, pointer.Int32Deref(val.BackupPort, defaultBackupPort))
+	endpoint := fmt.Sprintf("%s://%s-local:%d", protocol, val.Name, pointer.Int32Deref(val.BackupPort, DefaultBackupPort))
 
 	return []corev1.EnvVar{
 		getEnvVarFromValue("ENABLE_TLS", strconv.FormatBool(val.BackupTLS != nil)),
@@ -632,7 +637,7 @@ func getBackupPorts(val Values) []corev1.ContainerPort {
 		{
 			Name:          "server",
 			Protocol:      "TCP",
-			ContainerPort: pointer.Int32Deref(val.BackupPort, defaultBackupPort),
+			ContainerPort: pointer.Int32Deref(val.BackupPort, DefaultBackupPort),
 		},
 	}
 }
@@ -861,7 +866,7 @@ func getReadinessHandlerForSingleNode(val Values) corev1.Handler {
 	return corev1.Handler{
 		HTTPGet: &corev1.HTTPGetAction{
 			Path:   "/healthz",
-			Port:   intstr.FromInt(int(pointer.Int32Deref(val.BackupPort, defaultBackupPort))),
+			Port:   intstr.FromInt(int(pointer.Int32Deref(val.BackupPort, DefaultBackupPort))),
 			Scheme: scheme,
 		},
 	}
@@ -873,4 +878,31 @@ func getReadinessHandlerForMultiNode(val Values) corev1.Handler {
 			Command: val.ReadinessProbeCommand,
 		},
 	}
+}
+
+func (c *component) UpdateStatefulsetUpdateStrategy(ctx context.Context, updateStrategy appsv1.StatefulSetUpdateStrategyType) error {
+	sts, err := c.getExistingSts(ctx)
+	if err != nil {
+		return err
+	}
+
+	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, c.client, sts, func() error {
+		sts.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+			Type: updateStrategy,
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DestroyWithDeleteOptions destroys the already deployed statefulset with the given DeleteOptions.
+func (c *component) DestroyWithDeleteOptions(ctx context.Context, deleteOptions []client.DeleteOption) error {
+	sts := c.emptyStatefulset()
+
+	if err := client.IgnoreNotFound(c.client.Delete(ctx, sts, deleteOptions...)); err != nil {
+		return err
+	}
+	return c.WaitCleanup(ctx)
 }

@@ -46,6 +46,7 @@ func main() {
 		custodianWorkers                   int
 		secretWorkers                      int
 		etcdCopyBackupsTaskWorkers         int
+		etcdMemberWorkers                  int
 		custodianSyncPeriod                time.Duration
 		disableLeaseCache                  bool
 		compactionWorkers                  int
@@ -65,6 +66,7 @@ func main() {
 	flag.IntVar(&custodianWorkers, "custodian-workers", 3, "Number of worker threads of the custodian controller.")
 	flag.IntVar(&secretWorkers, "secret-workers", 10, "Number of worker threads of the secret controller.")
 	flag.IntVar(&etcdCopyBackupsTaskWorkers, "etcd-copy-backups-task-workers", 3, "Number of worker threads of the EtcdCopyBackupsTask controller.")
+	flag.IntVar(&etcdMemberWorkers, "etcd-member-workers", 3, "Number of worker threads of the EtcdMember controller.")
 	flag.DurationVar(&custodianSyncPeriod, "custodian-sync-period", 30*time.Second, "Sync period of the custodian controller.")
 	flag.BoolVar(&enableBackupCompaction, "enable-backup-compaction", false,
 		"Enable automatic compaction of etcd backups.")
@@ -142,7 +144,7 @@ func main() {
 
 	etcdCopyBackupsTask, err := controllers.NewEtcdCopyBackupsTaskReconcilerWithImageVector(mgr)
 	if err != nil {
-		setupLog.Error(err, "Unable to initialize controller with image vector")
+		setupLog.Error(err, "Unable to initialize EtcdCopyBackupsTask controller with image vector")
 		os.Exit(1)
 	}
 
@@ -164,6 +166,16 @@ func main() {
 	if err := lc.SetupWithManager(mgr, compactionWorkers); err != nil {
 		setupLog.Error(err, "Unable to create controller", "Controller", "Lease")
 		os.Exit(1)
+	}
+
+	etcdMember, err := controllers.NewEtcdMemberReconcilerWithImageVector(mgr)
+	if err != nil {
+		setupLog.Error(err, "Unable to initialize EtcdMember controller with image vector")
+		os.Exit(1)
+	}
+
+	if err := etcdMember.SetupWithManager(mgr, etcdMemberWorkers); err != nil {
+		setupLog.Error(err, "Unable to create controller", "Controller", "EtcdMember")
 	}
 
 	// +kubebuilder:scaffold:builder

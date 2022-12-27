@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
+	"github.com/gardener/etcd-druid/pkg/common"
 )
 
 func hasOperationAnnotation(obj client.Object) bool {
@@ -46,6 +47,28 @@ func HasOperationAnnotation() predicate.Predicate {
 		},
 		GenericFunc: func(event event.GenericEvent) bool {
 			return hasOperationAnnotation(event.Object)
+		},
+		DeleteFunc: func(event event.DeleteEvent) bool {
+			return true
+		},
+	}
+}
+
+func hasConfirmationAnnotation(obj client.Object) bool {
+	return obj.GetAnnotations()[common.PVCDeletionConfirmationAnnotation] == "true"
+}
+
+// HasConfirmationAnnotation is a predicate for the confirmation annotation.
+func HasConfirmationAnnotation() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event event.CreateEvent) bool {
+			return hasConfirmationAnnotation(event.Object)
+		},
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			return hasConfirmationAnnotation(event.ObjectNew)
+		},
+		GenericFunc: func(event event.GenericEvent) bool {
+			return hasConfirmationAnnotation(event.Object)
 		},
 		DeleteFunc: func(event event.DeleteEvent) bool {
 			return true

@@ -1600,8 +1600,7 @@ spec:
                 format: int32
                 type: integer
               etcd:
-                description: CrossVersionObjectReference contains enough information
-                  to let you identify the referred resource.
+                description: Etcd hold the reference to Etcd object itself.
                 properties:
                   apiVersion:
                     description: API version of the referent
@@ -1613,6 +1612,20 @@ spec:
                     description: Name of the referent
                     type: string
                 type: object
+              etcdMembers:
+                description: EtcdMembers holds references to the EtcdMembers of the
+                  etcd cluster
+                items:
+                  description: NamespacedObjectReference
+                  properties:
+                    name:
+                      description: Name of the object
+                      type: string
+                    namespace:
+                      description: Namespace in which the object is present
+                      type: string
+                  type: object
+                type: array
               labelSelector:
                 description: LabelSelector is a label query over pods that should
                   match the replica count. It must match the pod template's labels.
@@ -1661,6 +1674,36 @@ spec:
               lastError:
                 description: LastError represents the last occurred error.
                 type: string
+              lastOperation:
+                description: LastOperation
+                properties:
+                  description:
+                    description: Description
+                    type: string
+                  id:
+                    description: ID
+                    type: string
+                  lastUpdateTime:
+                    description: LastUpdateTime
+                    format: date-time
+                    type: string
+                  progress:
+                    description: Progress
+                    format: int32
+                    type: integer
+                  reason:
+                    description: Reason
+                    type: string
+                  state:
+                    description: State
+                    type: string
+                  taskID:
+                    description: TaskID
+                    type: string
+                  type:
+                    description: Type
+                    type: string
+                type: object
               members:
                 description: Members represents the members of the etcd cluster
                 items:

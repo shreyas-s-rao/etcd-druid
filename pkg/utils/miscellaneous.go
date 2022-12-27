@@ -17,6 +17,8 @@ package utils
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -261,4 +263,24 @@ func Max(x, y int) int {
 		return y
 	}
 	return x
+}
+
+func ParseInt32(s string) (int32, error) {
+	i64, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return int32(i64), nil
+}
+
+func GetRandomAlphaNumericString(length int) string {
+	rand.Seed(time.Now().UnixNano())
+	charset := "abcdefghijklmnopqrstuvwxyz0123456789"
+	randomString := make([]byte, length)
+
+	for i := 0; i < length; i++ {
+		randomString[i] = charset[rand.Intn(len(charset))]
+	}
+
+	return string(randomString)
 }
