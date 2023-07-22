@@ -23,7 +23,6 @@ import (
 	"k8s.io/utils/pointer"
 )
 
-// TODO Remove unused constants
 const (
 	// GarbageCollectionPolicyExponential defines the exponential policy for garbage collecting old backups
 	GarbageCollectionPolicyExponential = "Exponential"
@@ -330,6 +329,8 @@ const (
 	ConditionTypeAllMembersReady ConditionType = "AllMembersReady"
 	// ConditionTypeBackupReady is a constant for a condition type indicating that the etcd backup is ready.
 	ConditionTypeBackupReady ConditionType = "BackupReady"
+	// ConditionTypeDataVolumesReady is a constant for a condition type indicating that the etcd data volumes are ready.
+	ConditionTypeDataVolumesReady ConditionType = "DataVolumesReady"
 )
 
 // EtcdMemberConditionStatus is the status of an etcd cluster member.

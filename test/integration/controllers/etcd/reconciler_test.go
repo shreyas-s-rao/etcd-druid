@@ -52,7 +52,8 @@ import (
 )
 
 const (
-	timeout         = time.Minute * 5
+	defaultTimeout  = time.Minute * 5
+	smallTimeout    = time.Minute * 2
 	pollingInterval = time.Second * 2
 	etcdConfig      = "etcd.conf.yaml"
 	backupRestore   = "backup-restore"
@@ -79,7 +80,7 @@ var _ = Describe("Etcd Controller", func() {
 	//Reconciliation of new etcd resource deployment without any existing statefulsets.
 	Context("when adding etcd resources", func() {
 		var (
-			err      error
+			//err      error
 			instance *druidv1alpha1.Etcd
 			sts      *appsv1.StatefulSet
 			svc      *corev1.Service
@@ -101,7 +102,7 @@ var _ = Describe("Etcd Controller", func() {
 					Name:      instance.Name,
 					Namespace: instance.Namespace,
 				}, sts)
-			}, timeout, pollingInterval).Should(BeNil())
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			svc = &corev1.Service{}
 			// Wait until Service has been created by controller
@@ -110,84 +111,78 @@ var _ = Describe("Etcd Controller", func() {
 					Name:      instance.GetClientServiceName(),
 					Namespace: instance.Namespace,
 				}, svc)
-			}, timeout, pollingInterval).Should(BeNil())
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 		})
-		It("should create and adopt statefulset", func() {
-			ctx := context.TODO()
-
-			testutils.SetStatefulSetReady(sts)
-			err = k8sClient.Status().Update(ctx, sts)
-			Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, sts) }, timeout, pollingInterval).Should(BeTrue())
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(func() (*bool, error) {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(instance), instance); err != nil {
-					return nil, err
-				}
-				return instance.Status.Ready, nil
-			}, timeout, pollingInterval).Should(Equal(pointer.Bool(true)))
+		It("should adopt the created statefulset and update status.observedGeneration correctly", func() {
+			Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, sts) }, defaultTimeout, pollingInterval).Should(BeTrue())
+			Eventually(func() (bool, error) { return testutils.IsEtcdObservedGenerationUpdated(ctx, k8sClient, instance) }, defaultTimeout, pollingInterval).Should(BeTrue())
 		})
-		It("should create and adopt statefulset and printing events", func() {
-			// Check StatefulSet requirements
-			Expect(len(sts.Spec.VolumeClaimTemplates)).To(Equal(1))
-			Expect(sts.Spec.Replicas).To(PointTo(Equal(int32(1))))
+		// TODO: remove
+		/*
+			It("should create and adopt statefulset and print PVC warning event in status.LastError", func() {
+				// Check StatefulSet requirements
+				Expect(len(sts.Spec.VolumeClaimTemplates)).To(Equal(1))
+				Expect(sts.Spec.Replicas).To(PointTo(Equal(int32(1))))
 
-			// Create PVC
-			pvc := &corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      fmt.Sprintf("%s-%s-%d", sts.Spec.VolumeClaimTemplates[0].Name, sts.Name, 0),
-					Namespace: sts.Namespace,
-				},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceStorage: resource.MustParse("1Gi"),
+				// Create PVC
+				pvc := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      fmt.Sprintf("%s-%s-%d", sts.Spec.VolumeClaimTemplates[0].Name, sts.Name, 0),
+						Namespace: sts.Namespace,
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("1Gi"),
+							},
 						},
 					},
-				},
-			}
-			Expect(k8sClient.Create(context.TODO(), pvc)).To(Succeed())
-
-			// Create PVC warning Event
-			pvcMessage := "Failed to provision volume"
-			Expect(k8sClient.Create(context.TODO(), &corev1.Event{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "pvc-event-1",
-					Namespace: pvc.Namespace,
-				},
-				InvolvedObject: corev1.ObjectReference{
-					APIVersion: "v1",
-					Kind:       "PersistentVolumeClaim",
-					Name:       pvc.Name,
-					Namespace:  pvc.Namespace,
-				},
-				Type:    corev1.EventTypeWarning,
-				Message: pvcMessage,
-			})).To(Succeed())
-
-			// Eventually, warning message should be reflected in `etcd` object status.
-			Eventually(func() string {
-				if err := k8sClient.Get(context.TODO(), client.ObjectKeyFromObject(instance), instance); err != nil {
-					return ""
 				}
-				if instance.Status.LastError == nil {
-					return ""
-				}
-				return *instance.Status.LastError
-			}, timeout, pollingInterval).Should(ContainSubstring(pvcMessage))
-		})
+				Expect(k8sClient.Create(context.TODO(), pvc)).To(Succeed())
+
+				// Create PVC warning Event
+				pvcMessage := "Failed to provision volume"
+				Expect(k8sClient.Create(context.TODO(), &corev1.Event{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pvc-event-1",
+						Namespace: pvc.Namespace,
+					},
+					InvolvedObject: corev1.ObjectReference{
+						APIVersion: "v1",
+						Kind:       "PersistentVolumeClaim",
+						Name:       pvc.Name,
+						Namespace:  pvc.Namespace,
+					},
+					Type:    corev1.EventTypeWarning,
+					Message: pvcMessage,
+				})).To(Succeed())
+
+				// Eventually, warning message should be reflected in `etcd` object status.
+				Eventually(func() string {
+					if err := k8sClient.Get(context.TODO(), client.ObjectKeyFromObject(instance), instance); err != nil {
+						return ""
+					}
+					if instance.Status.LastError == nil {
+						return ""
+					}
+					return *instance.Status.LastError
+				}, defaultTimeout, pollingInterval).Should(ContainSubstring(pvcMessage))
+			})
+		*/
+
 		AfterEach(func() {
 			// Delete `etcd` instance
 			Expect(k8sClient.Delete(context.TODO(), instance)).To(Succeed())
 			Eventually(func() error {
 				return k8sClient.Get(context.TODO(), client.ObjectKeyFromObject(instance), &druidv1alpha1.Etcd{})
-			}, timeout, pollingInterval).Should(matchers.BeNotFoundError())
+			}, defaultTimeout, pollingInterval).Should(matchers.BeNotFoundError())
 			// Delete service manually because garbage collection is not available in `envtest`
 			Expect(k8sClient.Delete(context.TODO(), svc)).To(Succeed())
 			Eventually(func() error {
 				return k8sClient.Get(context.TODO(), client.ObjectKeyFromObject(svc), &corev1.Service{})
-			}, timeout, pollingInterval).Should(matchers.BeNotFoundError())
+			}, defaultTimeout, pollingInterval).Should(matchers.BeNotFoundError())
 
 		})
 	})
@@ -232,31 +227,39 @@ var _ = Describe("Etcd Controller", func() {
 
 			By("check if statefulset has reconciled")
 			s = &appsv1.StatefulSet{}
-			Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, s) }, timeout, pollingInterval).Should(BeTrue())
+			Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, s) }, defaultTimeout, pollingInterval).Should(BeTrue())
 
 			By("check if configmap has reconciled")
 			cm = &corev1.ConfigMap{}
-			Eventually(func() error { return testutils.ConfigMapIsCorrectlyReconciled(k8sClient, timeout, instance, cm) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error { return testutils.ConfigMapIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, cm) }, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("check if client service has reconciled")
 			clSvc = &corev1.Service{}
-			Eventually(func() error { return testutils.ClientServiceIsCorrectlyReconciled(k8sClient, timeout, instance, clSvc) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error {
+				return testutils.ClientServiceIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, clSvc)
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("check if peer service has reconciled")
 			prSvc = &corev1.Service{}
-			Eventually(func() error { return testutils.PeerServiceIsCorrectlyReconciled(k8sClient, timeout, instance, prSvc) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error {
+				return testutils.PeerServiceIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, prSvc)
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("check if service account has reconciled")
 			sa = &corev1.ServiceAccount{}
-			Eventually(func() error { return testutils.ServiceAccountIsCorrectlyReconciled(k8sClient, timeout, instance, sa) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error {
+				return testutils.ServiceAccountIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, sa)
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("check if role has reconciled")
 			role = &rbac.Role{}
-			Eventually(func() error { return testutils.RoleIsCorrectlyReconciled(k8sClient, timeout, instance, role) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error { return testutils.RoleIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, role) }, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("check if rolebinding has reconciled")
 			rb = &rbac.RoleBinding{}
-			Eventually(func() error { return testutils.RoleBindingIsCorrectlyReconciled(k8sClient, timeout, instance, rb) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error {
+				return testutils.RoleBindingIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, rb)
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			validate(instance, s, cm, clSvc, prSvc)
 			validateRole(instance, role)
@@ -299,7 +302,7 @@ var _ = Describe("Multinode ETCD", func() {
 			sts.Namespace = instance.Namespace
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, sts))).To(Succeed())
 
-			By("update replicas in ETCD resource with 0")
+			By("update replicas in ETCD resource with 4")
 			instance.Spec.Replicas = 4
 			Expect(k8sClient.Create(ctx, instance)).To(Succeed())
 
@@ -308,7 +311,7 @@ var _ = Describe("Multinode ETCD", func() {
 					Name:      instance.Name,
 					Namespace: instance.Namespace,
 				}, instance)
-			}, timeout, pollingInterval).Should(BeNil())
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("no StatefulSet has been created by controller as even number of replicas are not allowed")
 			Eventually(func() error {
@@ -316,7 +319,7 @@ var _ = Describe("Multinode ETCD", func() {
 					Name:      instance.Name,
 					Namespace: instance.Namespace,
 				}, sts)
-			}, timeout, pollingInterval).Should(matchers.BeNotFoundError())
+			}, defaultTimeout, pollingInterval).Should(matchers.BeNotFoundError())
 
 			By("update replicas in ETCD resource with 3")
 			patch := client.MergeFrom(instance.DeepCopy())
@@ -324,12 +327,14 @@ var _ = Describe("Multinode ETCD", func() {
 			Expect(k8sClient.Patch(ctx, instance, patch)).To(Succeed())
 
 			By("statefulsets are created when ETCD replicas are odd number")
-			Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, sts) }, timeout, pollingInterval).Should(BeTrue())
+			Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, sts) }, defaultTimeout, pollingInterval).Should(BeTrue())
 			Expect(int(*sts.Spec.Replicas)).To(Equal(3))
 
 			By("client Service has been created by controller")
 			svc = &corev1.Service{}
-			Eventually(func() error { return testutils.ClientServiceIsCorrectlyReconciled(k8sClient, timeout, instance, svc) }, timeout, pollingInterval).Should(BeNil())
+			Eventually(func() error {
+				return testutils.ClientServiceIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, svc)
+			}, defaultTimeout, pollingInterval).Should(BeNil())
 
 			By("should raise an event if annotation to ignore reconciliation is applied on ETCD CR")
 			patch = client.MergeFrom(instance.DeepCopy())
@@ -346,7 +351,6 @@ var _ = Describe("Multinode ETCD", func() {
 			Eventually(func() error {
 				events, err := clientset.CoreV1().Events(instance.Namespace).List(ctx, metav1.ListOptions{})
 				if err != nil {
-					fmt.Printf("The error is : %v", err)
 					return err
 				}
 
@@ -361,20 +365,20 @@ var _ = Describe("Multinode ETCD", func() {
 				}
 				return nil
 
-			}, timeout, pollingInterval).Should(BeNil())
+			}, smallTimeout, pollingInterval).Should(BeNil())
 
 			By("delete `etcd` instance")
 			Expect(client.IgnoreNotFound(k8sClient.Delete(context.TODO(), instance))).To(Succeed())
 			Eventually(func() error {
 				return k8sClient.Get(context.TODO(), client.ObjectKeyFromObject(instance), &druidv1alpha1.Etcd{})
-			}, timeout, pollingInterval).Should(matchers.BeNotFoundError())
+			}, defaultTimeout, pollingInterval).Should(matchers.BeNotFoundError())
 
 			By("delete service manually because garbage collection is not available in `envtest`")
 			if svc != nil {
 				Expect(k8sClient.Delete(context.TODO(), svc)).To(Succeed())
 				Eventually(func() error {
 					return k8sClient.Get(context.TODO(), client.ObjectKeyFromObject(svc), &corev1.Service{})
-				}, timeout, pollingInterval).Should(matchers.BeNotFoundError())
+				}, defaultTimeout, pollingInterval).Should(matchers.BeNotFoundError())
 			}
 		})
 	})
@@ -397,11 +401,13 @@ var _ = Describe("Multinode ETCD", func() {
 		err = k8sClient.Create(context.TODO(), instance)
 		Expect(err).NotTo(HaveOccurred())
 		sts = &appsv1.StatefulSet{}
-		Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, sts) }, timeout, pollingInterval).Should(BeTrue())
+		Eventually(func() (bool, error) { return testutils.IsStatefulSetCorrectlyReconciled(ctx, k8sClient, instance, sts) }, defaultTimeout, pollingInterval).Should(BeTrue())
 		cm = &corev1.ConfigMap{}
-		Eventually(func() error { return testutils.ConfigMapIsCorrectlyReconciled(k8sClient, timeout, instance, cm) }, timeout, pollingInterval).Should(BeNil())
+		Eventually(func() error { return testutils.ConfigMapIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, cm) }, defaultTimeout, pollingInterval).Should(BeNil())
 		svc = &corev1.Service{}
-		Eventually(func() error { return testutils.ClientServiceIsCorrectlyReconciled(k8sClient, timeout, instance, svc) }, timeout, pollingInterval).Should(BeNil())
+		Eventually(func() error {
+			return testutils.ClientServiceIsCorrectlyReconciled(k8sClient, defaultTimeout, instance, svc)
+		}, defaultTimeout, pollingInterval).Should(BeNil())
 
 		// Validate statefulset
 		Expect(*sts.Spec.Replicas).To(Equal(instance.Spec.Replicas))

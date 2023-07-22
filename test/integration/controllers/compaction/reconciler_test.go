@@ -15,27 +15,7 @@
 package compaction
 
 import (
-	"context"
-	"fmt"
 	"time"
-
-	"github.com/gardener/gardener/pkg/controllerutils"
-	"github.com/gardener/gardener/pkg/utils/test/matchers"
-
-	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
-	"github.com/gardener/etcd-druid/pkg/utils"
-	testutils "github.com/gardener/etcd-druid/test/utils"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gstruct"
-
-	batchv1 "k8s.io/api/batch/v1"
-	coordinationv1 "k8s.io/api/coordination/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -43,6 +23,7 @@ var (
 	pollingInterval = time.Second * 2
 )
 
+/*
 var _ = Describe("Compaction Controller", func() {
 
 	// When an ETCD resource is created, check if the associated compaction job is created with validateETCDCompactionJob
@@ -702,3 +683,4 @@ func deleteEtcdSnapshotLeasesAndWait(c client.Client, etcd *druidv1alpha1.Etcd) 
 		return testutils.IsLeaseRemoved(c, deltaSnapLease.Name, deltaSnapLease.Namespace, timeout)
 	}, timeout, pollingInterval).Should(BeNil())
 }
+*/

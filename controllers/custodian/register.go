@@ -25,7 +25,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -42,7 +41,6 @@ func (r *Reconciler) RegisterWithManager(ctx context.Context, mgr ctrl.Manager, 
 		}).
 		For(
 			&druidv1alpha1.Etcd{},
-			ctrlbuilder.WithPredicates(druidpredicates.EtcdReconciliationFinished(ignoreOperationAnnotation)),
 		).
 		Owns(&coordinationv1.Lease{}).
 		Build(r)

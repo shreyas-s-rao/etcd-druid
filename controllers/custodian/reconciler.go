@@ -74,12 +74,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	logger := r.logger.WithValues("etcd", kutil.Key(etcd.Namespace, etcd.Name).String())
 
-	if etcd.Status.LastError != nil && *etcd.Status.LastError != "" {
-		logger.Info("Requeue item because of last error", "namespace", etcd.Namespace, "name", etcd.Name, "lastError", *etcd.Status.LastError)
-		return ctrl.Result{
-			RequeueAfter: 30 * time.Second,
-		}, nil
-	}
+	//if etcd.Status.LastError != nil && *etcd.Status.LastError != "" {
+	//	logger.Info("Requeue item because of last error", "namespace", etcd.Namespace, "name", etcd.Name, "lastError", *etcd.Status.LastError)
+	//	return ctrl.Result{
+	//		RequeueAfter: 30 * time.Second,
+	//	}, nil
+	//}
 
 	statusCheck := status.NewChecker(r.Client, r.config.EtcdMember.NotReadyThreshold, r.config.EtcdMember.UnknownThreshold)
 	if err := statusCheck.Check(ctx, logger, etcd); err != nil {

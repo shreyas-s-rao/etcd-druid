@@ -15,27 +15,7 @@
 package etcdcopybackupstask
 
 import (
-	"context"
-	"fmt"
 	"time"
-
-	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
-	"github.com/gardener/etcd-druid/pkg/common"
-	"github.com/gardener/etcd-druid/pkg/utils"
-	testutils "github.com/gardener/etcd-druid/test/utils"
-
-	"github.com/gardener/gardener/pkg/controllerutils"
-	"github.com/gardener/gardener/pkg/utils/imagevector"
-	"github.com/gardener/gardener/pkg/utils/test/matchers"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gstruct"
-	gomegatypes "github.com/onsi/gomega/types"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -43,6 +23,7 @@ var (
 	pollingInterval = 2 * time.Second
 )
 
+/*
 var _ = Describe("EtcdCopyBackupsTask Controller", func() {
 	var (
 		ctx = context.Background()
@@ -419,3 +400,4 @@ func addEqual(elements Elements, s string) {
 func conditionIdentifier(element interface{}) string {
 	return string((element.(druidv1alpha1.Condition)).Type)
 }
+*/

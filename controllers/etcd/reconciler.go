@@ -16,6 +16,7 @@ package etcd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -39,7 +40,6 @@ import (
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/go-logr/logr"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -145,19 +145,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			IgnoreReconciliationAnnotation,
 		)
 
+		if err := r.updateEtcdStatus(ctx, etcd, nil); err != nil {
+			return ctrl.Result{
+				Requeue: true,
+			}, err
+		}
+
 		return ctrl.Result{
 			Requeue: false,
 		}, nil
 	}
 
 	return r.reconcile(ctx, etcd)
-}
-
-// reconcileResult captures the result of a reconciliation run.
-type reconcileResult struct {
-	svcName *string
-	sts     *appsv1.StatefulSet
-	err     error
 }
 
 func (r *Reconciler) reconcile(ctx context.Context, etcd *druidv1alpha1.Etcd) (ctrl.Result, error) {
@@ -167,49 +166,28 @@ func (r *Reconciler) reconcile(ctx context.Context, etcd *druidv1alpha1.Etcd) (c
 	if finalizers := sets.NewString(etcd.Finalizers...); !finalizers.Has(common.FinalizerName) {
 		logger.Info("Adding finalizer", "namespace", etcd.Namespace, "name", etcd.Name, "finalizerName", common.FinalizerName)
 		if err := controllerutils.AddFinalizers(ctx, r.Client, etcd, common.FinalizerName); err != nil {
-			if err := r.updateEtcdErrorStatus(ctx, etcd, reconcileResult{err: err}); err != nil {
-				return ctrl.Result{
-					Requeue: true,
-				}, err
-			}
 			return ctrl.Result{
 				Requeue: true,
-			}, err
+			}, errors.Join(err, r.updateEtcdStatus(ctx, etcd, err))
 		}
 	}
 
-	etcd, err := r.updateEtcdStatusAsNotReady(ctx, etcd)
+	if err := r.removeOperationAnnotation(ctx, logger, etcd); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{
+			Requeue: true,
+		}, err
+	}
+
+	reconcileErr := r.reconcileEtcd(ctx, logger, etcd)
+	if reconcileErr != nil {
+		logger.Error(reconcileErr, "Error while reconciling ETCD")
+	}
+
+	err := errors.Join(reconcileErr, r.updateEtcdStatus(ctx, etcd, reconcileErr))
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{
-			Requeue: true,
-		}, err
-	}
-
-	if err = r.removeOperationAnnotation(ctx, logger, etcd); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{
-			Requeue: true,
-		}, err
-	}
-
-	result := r.reconcileEtcd(ctx, logger, etcd)
-	if result.err != nil {
-		if updateEtcdErr := r.updateEtcdErrorStatus(ctx, etcd, result); updateEtcdErr != nil {
-			logger.Error(updateEtcdErr, "Error during reconciling ETCD")
-			return ctrl.Result{
-				Requeue: true,
-			}, updateEtcdErr
-		}
-		return ctrl.Result{
-			Requeue: true,
-		}, result.err
-	}
-	if err := r.updateEtcdStatus(ctx, etcd, result); err != nil {
 		return ctrl.Result{
 			Requeue: true,
 		}, err
@@ -224,16 +202,13 @@ func (r *Reconciler) delete(ctx context.Context, etcd *druidv1alpha1.Etcd) (ctrl
 	logger := r.logger.WithValues("etcd", kutil.Key(etcd.Namespace, etcd.Name).String(), "operation", "delete")
 	logger.Info("Starting deletion operation", "namespace", etcd.Namespace, "name", etcd.Name)
 
-	stsDeployer := gardenercomponent.OpDestroyAndWait(componentsts.New(r.Client, logger, componentsts.Values{Name: etcd.Name, Namespace: etcd.Namespace}, r.config.FeatureGates))
+	stsDeployer := gardenercomponent.OpDestroyAndWait(
+		componentsts.New(r.Client, logger, componentsts.Values{Name: etcd.Name, Namespace: etcd.Namespace}, r.config.FeatureGates),
+	)
 	if err := stsDeployer.Destroy(ctx); err != nil {
-		if err = r.updateEtcdErrorStatus(ctx, etcd, reconcileResult{err: err}); err != nil {
-			return ctrl.Result{
-				Requeue: true,
-			}, err
-		}
 		return ctrl.Result{
 			Requeue: true,
-		}, err
+		}, errors.Join(err, r.updateEtcdStatus(ctx, etcd, err))
 	}
 
 	leaseDeployer := componentlease.New(r.Client, logger, etcd.Namespace, componentlease.GenerateValues(etcd))
@@ -300,71 +275,71 @@ func (r *Reconciler) delete(ctx context.Context, etcd *druidv1alpha1.Etcd) (ctrl
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, etcd *druidv1alpha1.Etcd) reconcileResult {
+func (r *Reconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, etcd *druidv1alpha1.Etcd) error {
 	// Check if Spec.Replicas is odd or even.
 	// TODO(timuthy): The following checks should rather be part of a validation. Also re-enqueuing doesn't make sense in case the values are invalid.
 	if etcd.Spec.Replicas > 1 && etcd.Spec.Replicas&1 == 0 {
-		return reconcileResult{err: fmt.Errorf("Spec.Replicas should not be even number: %d", etcd.Spec.Replicas)}
+		return fmt.Errorf("Spec.Replicas should not be even number: %d", etcd.Spec.Replicas)
 	}
 
 	etcdImage, etcdBackupImage, err := druidutils.GetEtcdImages(etcd, r.imageVector)
 	if err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	leaseValues := componentlease.GenerateValues(etcd)
 	leaseDeployer := componentlease.New(r.Client, logger, etcd.Namespace, leaseValues)
 	if err := leaseDeployer.Deploy(ctx); err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	serviceValues := componentservice.GenerateValues(etcd)
 	serviceDeployer := componentservice.New(r.Client, etcd.Namespace, serviceValues)
 	if err := serviceDeployer.Deploy(ctx); err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	configMapValues := componentconfigmap.GenerateValues(etcd)
 
 	cmDeployer := componentconfigmap.New(r.Client, etcd.Namespace, configMapValues)
 	if err := cmDeployer.Deploy(ctx); err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	pdbValues := componentpdb.GenerateValues(etcd)
 	k8sversion, err := druidutils.GetClusterK8sVersion(r.restConfig)
 	if err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 	pdbDeployer := componentpdb.New(r.Client, etcd.Namespace, &pdbValues, *k8sversion)
 	if err := pdbDeployer.Deploy(ctx); err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	saValues := componentserviceaccount.GenerateValues(etcd, r.config.DisableEtcdServiceAccountAutomount)
 	saDeployer := componentserviceaccount.New(r.Client, saValues)
 	err = saDeployer.Deploy(ctx)
 	if err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	roleValues := componentrole.GenerateValues(etcd)
 	roleDeployer := componentrole.New(r.Client, roleValues)
 	err = roleDeployer.Deploy(ctx)
 	if err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	roleBindingValues := componentrolebinding.GenerateValues(etcd)
 	roleBindingDeployer := componentrolebinding.New(r.Client, roleBindingValues)
 	err = roleBindingDeployer.Deploy(ctx)
 	if err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	peerTLSEnabled, err := druidutils.IsPeerURLTLSEnabled(ctx, r.Client, etcd.Namespace, etcd.Name, logger)
 	if err != nil {
-		return reconcileResult{err: err}
+		return err
 	}
 
 	peerUrlTLSChangedToEnabled := isPeerTLSChangedToEnabled(peerTLSEnabled, configMapValues)
@@ -381,18 +356,9 @@ func (r *Reconciler) reconcileEtcd(ctx context.Context, logger logr.Logger, etcd
 		r.config.FeatureGates[string(features.UseEtcdWrapper)],
 	)
 
-	// Create an OpWaiter because after the deployment we want to wait until the StatefulSet is ready.
-	var (
-		stsDeployer  = componentsts.New(r.Client, logger, statefulSetValues, r.config.FeatureGates)
-		deployWaiter = gardenercomponent.OpWait(stsDeployer)
-	)
+	var stsDeployer = componentsts.New(r.Client, logger, statefulSetValues, r.config.FeatureGates)
 
-	if err = deployWaiter.Deploy(ctx); err != nil {
-		return reconcileResult{err: err}
-	}
-
-	sts, err := stsDeployer.Get(ctx)
-	return reconcileResult{svcName: &serviceValues.ClientServiceName, sts: sts, err: err}
+	return stsDeployer.Deploy(ctx)
 }
 
 func isPeerTLSChangedToEnabled(peerTLSEnabledStatusFromMembers bool, configMapValues *componentconfigmap.Values) bool {
@@ -402,31 +368,44 @@ func isPeerTLSChangedToEnabled(peerTLSEnabledStatusFromMembers bool, configMapVa
 	return configMapValues.PeerUrlTLS != nil
 }
 
-func (r *Reconciler) updateEtcdErrorStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
-	lastErrStr := result.err.Error()
-	etcd.Status.LastError = &lastErrStr
+func (r *Reconciler) updateEtcdStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, reconcileError error) error {
 	etcd.Status.ObservedGeneration = &etcd.Generation
-	if result.sts != nil {
-		ready, _ := druidutils.IsStatefulSetReady(etcd.Spec.Replicas, result.sts)
-		etcd.Status.Ready = &ready
-		etcd.Status.Replicas = pointer.Int32Deref(result.sts.Spec.Replicas, 0)
-	}
 
-	return r.Client.Status().Update(ctx, etcd)
-}
-
-func (r *Reconciler) updateEtcdStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
-	if result.sts != nil {
-		ready, _ := druidutils.IsStatefulSetReady(etcd.Spec.Replicas, result.sts)
-		etcd.Status.Ready = &ready
-		etcd.Status.Replicas = pointer.Int32Deref(result.sts.Spec.Replicas, 0)
-	}
-	etcd.Status.ServiceName = result.svcName
 	etcd.Status.LastError = nil
-	etcd.Status.ObservedGeneration = &etcd.Generation
+	if reconcileError != nil {
+		etcd.Status.LastError = pointer.String(reconcileError.Error())
+	}
 
 	return r.Client.Status().Update(ctx, etcd)
 }
+
+// TODO: remove
+//func (r *Reconciler) updateEtcdErrorStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
+//	lastErrStr := result.err.Error()
+//	etcd.Status.LastError = &lastErrStr
+//	etcd.Status.ObservedGeneration = &etcd.Generation
+//	if result.sts != nil {
+//		ready, _ := druidutils.IsStatefulSetReady(etcd.Spec.Replicas, result.sts)
+//		etcd.Status.Ready = &ready
+//		etcd.Status.Replicas = pointer.Int32Deref(result.sts.Spec.Replicas, 0)
+//	}
+//
+//	return r.Client.Status().Update(ctx, etcd)
+//}
+
+// TODO: remove
+//func (r *Reconciler) updateEtcdStatus(ctx context.Context, etcd *druidv1alpha1.Etcd, result reconcileResult) error {
+//	if result.sts != nil {
+//		ready, _ := druidutils.IsStatefulSetReady(etcd.Spec.Replicas, result.sts)
+//		etcd.Status.Ready = &ready
+//		etcd.Status.Replicas = pointer.Int32Deref(result.sts.Spec.Replicas, 0)
+//	}
+//	etcd.Status.ServiceName = result.svcName
+//	etcd.Status.LastError = nil
+//	etcd.Status.ObservedGeneration = &etcd.Generation
+//
+//	return r.Client.Status().Update(ctx, etcd)
+//}
 
 func (r *Reconciler) removeOperationAnnotation(ctx context.Context, logger logr.Logger, etcd *druidv1alpha1.Etcd) error {
 	if _, ok := etcd.Annotations[v1beta1constants.GardenerOperation]; ok {
@@ -438,9 +417,10 @@ func (r *Reconciler) removeOperationAnnotation(ctx context.Context, logger logr.
 	return nil
 }
 
-func (r *Reconciler) updateEtcdStatusAsNotReady(ctx context.Context, etcd *druidv1alpha1.Etcd) (*druidv1alpha1.Etcd, error) {
-	etcd.Status.Ready = nil
-	etcd.Status.ReadyReplicas = 0
-
-	return etcd, r.Client.Status().Update(ctx, etcd)
-}
+// TODO: remove, since it is totally unnecessary to set readiness to false just because reconciliation is ongoing
+//func (r *Reconciler) updateEtcdStatusAsNotReady(ctx context.Context, etcd *druidv1alpha1.Etcd) (*druidv1alpha1.Etcd, error) {
+//	etcd.Status.Ready = nil
+//	etcd.Status.ReadyReplicas = 0
+//
+//	return etcd, r.Client.Status().Update(ctx, etcd)
+//}

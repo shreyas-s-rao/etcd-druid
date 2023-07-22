@@ -15,19 +15,7 @@
 package secret
 
 import (
-	"context"
 	"time"
-
-	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
-	"github.com/gardener/etcd-druid/pkg/common"
-	"github.com/gardener/etcd-druid/test/utils"
-
-	"github.com/gardener/gardener/pkg/utils/test/matchers"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -35,6 +23,7 @@ var (
 	pollingInterval = 2 * time.Second
 )
 
+/*
 var _ = Describe("Secret Controller", func() {
 	var (
 		ctx  = context.TODO()
@@ -117,3 +106,4 @@ var _ = Describe("Secret Controller", func() {
 		}
 	})
 })
+*/

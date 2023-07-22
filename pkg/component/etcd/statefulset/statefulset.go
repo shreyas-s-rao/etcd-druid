@@ -102,6 +102,7 @@ const (
 func (c *component) Wait(ctx context.Context) error {
 	sts := c.emptyStatefulset()
 	err := c.waitDeploy(ctx, sts, c.values.Replicas, defaultTimeout)
+	// TODO: fetching PVC events should not be part of waiting for statefulset. This should be handled by custodian since it involves statefulset status, and custodian should populate this in Reason for `AllMembersReady` condition
 	if err != nil {
 		if getErr := c.client.Get(ctx, client.ObjectKeyFromObject(sts), sts); getErr != nil {
 			return err
@@ -547,6 +548,7 @@ func (c *component) createOrPatch(ctx context.Context, sts *appsv1.StatefulSet, 
 
 // fetchPVCEventsForStatefulset fetches events for PVCs for a statefulset and return the events,
 // as well as possible error and name of the PVC that caused the error
+// TODO: remove
 func (c *component) fetchPVCEventsForStatefulset(ctx context.Context, ss *appsv1.StatefulSet) (string, *string, error) {
 	pvcs := &corev1.PersistentVolumeClaimList{}
 	if err := c.client.List(ctx, pvcs, client.InNamespace(ss.GetNamespace())); err != nil {

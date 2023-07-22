@@ -389,3 +389,11 @@ func IsEtcdRemoved(c client.Client, name, namespace string, timeout time.Duratio
 	}
 	return fmt.Errorf("etcd not deleted")
 }
+
+// IsEtcdObservedGenerationUpdated returns true if Etcd object's status.observedGeneration is the same as metadata.generation
+func IsEtcdObservedGenerationUpdated(ctx context.Context, c client.Client, etcd *druidv1alpha1.Etcd) (bool, error) {
+	if err := c.Get(ctx, client.ObjectKeyFromObject(etcd), etcd); err != nil {
+		return false, err
+	}
+	return pointer.Int64Deref(etcd.Status.ObservedGeneration, 0) == etcd.Generation, nil
+}

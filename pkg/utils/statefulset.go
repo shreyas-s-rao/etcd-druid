@@ -16,7 +16,11 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
+	corev1 "k8s.io/api/core/v1"
+	"strings"
 
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -60,4 +64,34 @@ func GetStatefulSet(ctx context.Context, cl client.Client, etcd *druidv1alpha1.E
 	}
 
 	return nil, nil
+}
+
+// FetchPVCWarningEventsForStatefulSet fetches warning events for PVCs for a statefulset and returns them as an error
+func FetchPVCWarningEventsForStatefulSet(ctx context.Context, cl client.Client, sts *appsv1.StatefulSet) (string, error) {
+	pvcs := &corev1.PersistentVolumeClaimList{}
+	if err := cl.List(ctx, pvcs, client.InNamespace(sts.GetNamespace())); err != nil {
+		return "", fmt.Errorf("unable to list PVCs for sts %s: %v", sts.Name, err)
+	}
+
+	var (
+		events []string
+		pvcErr error
+	)
+
+	for _, volumeClaim := range sts.Spec.VolumeClaimTemplates {
+		pvcPrefix := fmt.Sprintf("%s-%s", volumeClaim.Name, sts.Name)
+		for _, pvc := range pvcs.Items {
+			if !strings.HasPrefix(pvc.GetName(), pvcPrefix) || pvc.Status.Phase == corev1.ClaimBound {
+				continue
+			}
+			messages, err := kutil.FetchEventMessages(ctx, cl.Scheme(), cl, &pvc, corev1.EventTypeWarning, 2)
+			if err != nil {
+				pvcErr = errors.Join(pvcErr, fmt.Errorf("unable to fetch warning events for PVC %s/%s: %v", pvc.Namespace, pvc.Name, err))
+			}
+			if messages != "" {
+				events = append(events, fmt.Sprintf("Warning for PVC %s/%s: %s", pvc.Namespace, pvc.Name, messages))
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(events, "; ")), pvcErr
 }

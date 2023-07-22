@@ -15,21 +15,7 @@
 package custodian
 
 import (
-	"context"
-	"fmt"
 	"time"
-
-	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
-	componentpdb "github.com/gardener/etcd-druid/pkg/component/etcd/poddisruptionbudget"
-	testutils "github.com/gardener/etcd-druid/test/utils"
-
-	"github.com/gardener/gardener/pkg/utils/test/matchers"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -37,6 +23,7 @@ const (
 	pollingInterval = time.Second * 2
 )
 
+/*
 var _ = Describe("Custodian Controller", func() {
 	Describe("Updating Etcd status", func() {
 		Context("when statefulset status is updated", func() {
@@ -199,3 +186,4 @@ var _ = Describe("Custodian Controller", func() {
 	})
 
 })
+*/

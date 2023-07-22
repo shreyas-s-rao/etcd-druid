@@ -45,9 +45,10 @@ var (
 	NewDefaultEtcdMemberBuilder = etcdmember.NewBuilder
 	// ConditionChecks Checks are the registered condition checks.
 	ConditionChecks = []ConditionCheckFn{
-		condition.AllMembersCheck,
+		condition.AllMembersReadyCheck,
 		condition.ReadyCheck,
 		condition.BackupReadyCheck,
+		condition.DataVolumesReadyCheck,
 	}
 	// EtcdMemberChecks are the etcd member checks.
 	EtcdMemberChecks = []EtcdMemberCheckFn{
@@ -85,7 +86,7 @@ func (c *Checker) executeConditionChecks(ctx context.Context, etcd *druidv1alpha
 		wg sync.WaitGroup
 	)
 
-	// Run condition checks in parallel since they work independently from each other.
+	// Run condition checks in parallel since each check work independently of each other.
 	for _, newCheck := range c.conditionCheckFns {
 		c := newCheck(c.cl)
 		wg.Add(1)

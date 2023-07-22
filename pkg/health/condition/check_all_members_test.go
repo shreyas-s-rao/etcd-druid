@@ -51,7 +51,7 @@ var _ = Describe("AllMembersReadyCheck", func() {
 						},
 					},
 				}
-				check := AllMembersCheck(nil)
+				check := AllMembersReadyCheck(nil)
 
 				result := check.Check(context.TODO(), etcd)
 
@@ -72,7 +72,7 @@ var _ = Describe("AllMembersReadyCheck", func() {
 						},
 					},
 				}
-				check := AllMembersCheck(nil)
+				check := AllMembersReadyCheck(nil)
 
 				result := check.Check(context.TODO(), etcd)
 
@@ -92,7 +92,7 @@ var _ = Describe("AllMembersReadyCheck", func() {
 						},
 					},
 				}
-				check := AllMembersCheck(nil)
+				check := AllMembersReadyCheck(nil)
 
 				result := check.Check(context.TODO(), etcd)
 
@@ -112,7 +112,7 @@ var _ = Describe("AllMembersReadyCheck", func() {
 						Members: []druidv1alpha1.EtcdMemberStatus{},
 					},
 				}
-				check := AllMembersCheck(nil)
+				check := AllMembersReadyCheck(nil)
 
 				result := check.Check(context.TODO(), etcd)
 
