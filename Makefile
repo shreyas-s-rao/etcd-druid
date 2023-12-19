@@ -106,6 +106,7 @@ check: $(GOLANGCI_LINT) $(GOIMPORTS) set-permissions fmt manifests
 
 .PHONY: check-generate
 check-generate: set-permissions
+	@env GO111MODULE=on go mod tidy
 	@"$(REPO_ROOT)/vendor/github.com/gardener/gardener/hack/check-generate.sh" "$(REPO_ROOT)"
 
 # Generate code
