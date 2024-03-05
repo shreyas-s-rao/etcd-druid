@@ -81,7 +81,7 @@ deploy-via-kustomize: manifests $(KUSTOMIZE)
 # Modify the Helm template located at charts/druid/templates if any changes are required
 .PHONY: deploy
 deploy: $(SKAFFOLD) $(HELM)
-	$(SKAFFOLD) run -m etcd-druid --kubeconfig=$(KUBECONFIG_PATH)
+	$(SKAFFOLD) run -m etcd-druid --kubeconfig=$(KUBECONFIG) # TODO
 
 # Generate manifests e.g. CRD, RBAC etc.
 .PHONY: manifests
