@@ -55,6 +55,7 @@ const (
 	debugContainerName = "volume-replacement-task"
 	kapiDeploymentName = "kube-apiserver"
 	kapiLabelRoleKey   = "role"
+	errorsFile         = "/Users/i349079/Downloads/errors.txt"
 )
 
 // getEtcds gets etcds with the given name, across namespaces
@@ -81,20 +82,16 @@ func getEtcdStatefulSetLabels(c client.Client, etcd *v1alpha1.Etcd) (map[string]
 
 func getPVCsForEtcd(c client.Client, etcd *v1alpha1.Etcd, labels map[string]string) ([]corev1.PersistentVolumeClaim, error) {
 	pvcList := &corev1.PersistentVolumeClaimList{}
-	if err := c.List(context.Background(), pvcList, client.InNamespace(etcd.Namespace), client.MatchingLabels(labels)); err != nil {
+	if err := c.List(context.Background(), pvcList, client.InNamespace(etcd.Namespace)); err != nil {
 		return nil, fmt.Errorf("unable to list pvcs: %v", err)
 	}
-	if len(pvcList.Items) == 2 {
-		// If there are 2 PVCs, it means that PVC *-0 was created long ago and has different labels than expected.
-		pvcName0 := fmt.Sprintf("%s%d", pvcList.Items[0].Name[:len(pvcList.Items[0].Name)-1], 0)
-		log.Printf("Found 2 pvcs for etcd %s/%s. Fetching the missing PVC %s.", etcd.Namespace, etcd.Name, pvcName0)
-		pvc := corev1.PersistentVolumeClaim{}
-		if err := c.Get(context.Background(), types.NamespacedName{Namespace: etcd.Namespace, Name: pvcName0}, &pvc); err != nil {
-			return nil, fmt.Errorf("unable to get pvc: %v", err)
+	var filteredPVCs []corev1.PersistentVolumeClaim
+	for _, pvc := range pvcList.Items {
+		if strings.Contains(pvc.Name, etcd.Name) {
+			filteredPVCs = append(filteredPVCs, pvc)
 		}
-		return append([]corev1.PersistentVolumeClaim{pvc}, pvcList.Items...), nil
 	}
-	return pvcList.Items, nil
+	return filteredPVCs, nil
 }
 
 func scaleEtcd(c client.Client, etcd *v1alpha1.Etcd, replicas int32, stsLabels map[string]string) error {
@@ -402,10 +399,10 @@ func isEBSVolumeEncrypted(volume *ec2.Volume) bool {
 
 func scaleDeployment(c client.Client, name, namespace string, replicas int32) error {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
-	if err := c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: namespace}, dep); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, dep); err != nil {
 		return fmt.Errorf("unable to get deployment %s/%s", namespace, name)
 	}
-	log.Printf("Scaling deployment %s/%s from %d to %d replicas", namespace, name, dep.Spec.Replicas, replicas)
+	log.Printf("Scaling deployment %s/%s from %d to %d replicas", namespace, name, *dep.Spec.Replicas, replicas)
 
 	scale := &autoscalingv1.Scale{Spec: autoscalingv1.ScaleSpec{Replicas: replicas}}
 	if err := c.SubResource("scale").Update(context.Background(), dep, client.WithSubResourceBody(scale)); err != nil {
@@ -447,15 +444,29 @@ func scaleDeployment(c client.Client, name, namespace string, replicas int32) er
 
 func scaleDownDeployment(c client.Client, deploymentName, deploymentNamespace string) (int32, error) {
 	dep := &appsv1.Deployment{}
-	if err := c.Get(context.Background(), types.NamespacedName{Name: deploymentName, Namespace: deploymentNamespace}, dep); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: deploymentNamespace, Name: deploymentName}, dep); err != nil {
 		return 0, fmt.Errorf("unable to fetch deployment: %v", err)
 	}
-	replicas := dep.Spec.Replicas
 
-	return *replicas, scaleDeployment(c, deploymentName, deploymentNamespace, 0)
+	if *dep.Spec.Replicas == 0 {
+		log.Printf("Deployment %s/%s is already scaled down", deploymentNamespace, deploymentName)
+		return 0, nil
+	}
+
+	return *dep.Spec.Replicas, scaleDeployment(c, deploymentName, deploymentNamespace, 0)
 }
 
 func scaleUpDeployment(c client.Client, deploymentName, deploymentNamespace string, replicas int32) error {
+	dep := &appsv1.Deployment{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: deploymentNamespace, Name: deploymentName}, dep); err != nil {
+		return fmt.Errorf("unable to fetch deployment: %v", err)
+	}
+
+	if *dep.Spec.Replicas == 0 && replicas == 0 {
+		log.Printf("Deployment %s/%s need not be scaled up", deploymentNamespace, deploymentName)
+		return nil
+	}
+
 	return scaleDeployment(c, deploymentName, deploymentNamespace, replicas)
 }
 
@@ -808,6 +819,19 @@ func (r *runner) getEtcdFullName(etcd *v1alpha1.Etcd) string {
 	return fmt.Sprintf("%s/%s/%s/%s", r.config.landscapeName, r.config.clusterName, etcd.Namespace, etcd.Name)
 }
 
+func appendToFile(filePath, content string) error {
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("unable to open file: %v", err)
+	}
+	defer f.Close()
+
+	if _, err = f.WriteString(fmt.Sprintf("%s\n", content)); err != nil {
+		return fmt.Errorf("unable to write to file: %v", err)
+	}
+	return nil
+}
+
 func (r *runner) handleSingleNode(c client.Client, clientSet *kubernetes.Clientset, config *rest.Config, etcd *v1alpha1.Etcd, pvNodeMap map[string]string, unencryptedVolumes *[]*volume) error {
 	log.Printf("Fetching statefulset labels for etcd %s/%s\n", etcd.Namespace, etcd.Name)
 	stsLabels, err := getEtcdStatefulSetLabels(c, etcd)
@@ -899,6 +923,17 @@ func (r *runner) handleSingleNode(c client.Client, clientSet *kubernetes.Clients
 
 		kapiReplicas := int32(0)
 		if !isShootHibernated && r.config.scaleKubeApiserver {
+			dep := &appsv1.Deployment{}
+			if err := c.Get(context.Background(), types.NamespacedName{Namespace: etcd.Namespace, Name: kapiDeploymentName}, dep); err != nil {
+				return fmt.Errorf("unable to fetch kapi deployment: %v", err)
+			}
+			if *dep.Spec.Replicas != 0 && dep.Status.ReadyReplicas == 0 {
+				log.Printf("Kapi deployment %s/%s is not ready yet, skipping etcd volume replacement\n", etcd.Namespace, kapiDeploymentName)
+				if err = appendToFile(errorsFile, fmt.Sprintf("%s/%s/%s/%s - kapi deployment %s/%s is not ready yet, skipping etcd volume replacement", r.config.landscapeName, r.config.clusterName, etcd.Namespace, etcd.Name, etcd.Namespace, kapiDeploymentName)); err != nil {
+					return fmt.Errorf("unable to append to errors file: %v", err)
+				}
+				return nil
+			}
 			log.Printf("Scaling down deployment %s/%s\n", etcd.Namespace, kapiDeploymentName)
 			kapiReplicas, err = scaleDownDeployment(c, kapiDeploymentName, etcd.Namespace)
 			if err != nil {
@@ -968,10 +1003,11 @@ func (r *runner) handleSingleNode(c client.Client, clientSet *kubernetes.Clients
 		log.Printf("PVC %s/%s was recreated\n", pvc.Namespace, pvc.Name)
 
 		log.Printf("Waiting for pod %s/%s to become ready\n", pod.Namespace, pod.Name)
-		pod, err = waitForPodReady(c, pod.Name, pod.Namespace)
+		pod1, err := waitForPodReady(c, pod.Name, pod.Namespace)
 		if err != nil {
 			return fmt.Errorf("pod %s/%s did not become ready in time: %v", pod.Namespace, pod.Name, err)
 		}
+		pod = pod1
 		log.Printf("Pod %s/%s became ready\n", pod.Namespace, pod.Name)
 
 		log.Printf("Attaching ephemeral container %s to pod %s/%s\n", debugContainerName, pod.Namespace, pod.Name)
@@ -1650,6 +1686,3 @@ func main() {
 		log.Fatalf("Runner failed with error: %v", err)
 	}
 }
-
-// TODO: take output json file flag and print out unencrypted volume info (pvc name, ns, seed, region, volume id) to the file
-// TODO: write shell script to get aws seeds and run this script per seed, first in dry-run mode to get unencrypted volumes, then in non-dry-run mode to replace them. Pass output dir, so that script can pass file name flag to this script.
