@@ -59,6 +59,7 @@ type stsBuilder struct {
 	client                 client.Client
 	etcd                   *druidv1alpha1.Etcd
 	replicas               int32
+	lastAppliedReplicas    int32
 	useEtcdWrapper         bool
 	provider               *string
 	etcdImage              string
@@ -149,7 +150,7 @@ func (b *stsBuilder) createStatefulSetSpec(ctx component.OperatorContext) error 
 		ServiceName:          druidv1alpha1.GetPeerServiceName(b.etcd.ObjectMeta),
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
-				Labels:      utils.MergeMaps(b.etcd.Spec.Labels, b.getStatefulSetLabels()),
+				Labels:      b.getStatefulSetPodLabels(int(b.replicas)),
 				Annotations: b.getPodTemplateAnnotations(ctx),
 			},
 			Spec: corev1.PodSpec{
@@ -170,6 +171,15 @@ func (b *stsBuilder) createStatefulSetSpec(ctx component.OperatorContext) error 
 		},
 	}
 	return nil
+}
+
+func (b *stsBuilder) getStatefulSetPodLabels(replicas int) map[string]string {
+	return utils.MergeMaps(
+		b.etcd.Spec.Labels,
+		b.getStatefulSetLabels(),
+		map[string]string{
+			druidv1alpha1.LabelEtcdClusterSizeKey: strconv.Itoa(replicas),
+		})
 }
 
 func (b *stsBuilder) getHostAliases() []corev1.HostAlias {
@@ -261,7 +271,7 @@ func (b *stsBuilder) getPodInitContainers() []corev1.Container {
 func (b *stsBuilder) getEtcdContainerVolumeMounts() []corev1.VolumeMount {
 	etcdVolumeMounts := make([]corev1.VolumeMount, 0, 7)
 	etcdVolumeMounts = append(etcdVolumeMounts, b.getEtcdDataVolumeMount())
-	etcdVolumeMounts = append(etcdVolumeMounts, b.getEtcdContainerSecretVolumeMounts()...)
+	etcdVolumeMounts = append(etcdVolumeMounts, getEtcdContainerSecretVolumeMounts(b.etcd)...)
 	return etcdVolumeMounts
 }
 
@@ -274,7 +284,7 @@ func (b *stsBuilder) getBackupRestoreContainerVolumeMounts() []corev1.VolumeMoun
 			MountPath: etcdConfigFileMountPath,
 		},
 	)
-	brVolumeMounts = append(brVolumeMounts, b.getBackupRestoreContainerSecretVolumeMounts()...)
+	brVolumeMounts = append(brVolumeMounts, getBackupRestoreContainerSecretVolumeMounts(b.etcd)...)
 
 	if b.etcd.IsBackupStoreEnabled() {
 		etcdBackupVolumeMount := b.getEtcdBackupVolumeMount()
@@ -285,9 +295,9 @@ func (b *stsBuilder) getBackupRestoreContainerVolumeMounts() []corev1.VolumeMoun
 	return brVolumeMounts
 }
 
-func (b *stsBuilder) getBackupRestoreContainerSecretVolumeMounts() []corev1.VolumeMount {
+func getBackupRestoreContainerSecretVolumeMounts(etcd *druidv1alpha1.Etcd) []corev1.VolumeMount {
 	secretVolumeMounts := make([]corev1.VolumeMount, 0, 3)
-	if b.etcd.Spec.Backup.TLS != nil {
+	if etcd.Spec.Backup.TLS != nil {
 		secretVolumeMounts = append(secretVolumeMounts,
 			corev1.VolumeMount{
 				Name:      common.VolumeNameBackupRestoreServerTLS,
@@ -295,7 +305,7 @@ func (b *stsBuilder) getBackupRestoreContainerSecretVolumeMounts() []corev1.Volu
 			},
 		)
 	}
-	if b.etcd.Spec.Etcd.ClientUrlTLS != nil {
+	if etcd.Spec.Etcd.ClientUrlTLS != nil {
 		secretVolumeMounts = append(secretVolumeMounts,
 			corev1.VolumeMount{
 				Name:      common.VolumeNameEtcdCA,
@@ -657,9 +667,9 @@ func (b *stsBuilder) getPodSecurityContext() *corev1.PodSecurityContext {
 	}
 }
 
-func (b *stsBuilder) getEtcdContainerSecretVolumeMounts() []corev1.VolumeMount {
+func getEtcdContainerSecretVolumeMounts(etcd *druidv1alpha1.Etcd) []corev1.VolumeMount {
 	secretVolumeMounts := make([]corev1.VolumeMount, 0, 6)
-	if b.etcd.Spec.Etcd.ClientUrlTLS != nil {
+	if etcd.Spec.Etcd.ClientUrlTLS != nil {
 		secretVolumeMounts = append(secretVolumeMounts,
 			corev1.VolumeMount{
 				Name:      common.VolumeNameEtcdCA,
@@ -675,7 +685,7 @@ func (b *stsBuilder) getEtcdContainerSecretVolumeMounts() []corev1.VolumeMount {
 			},
 		)
 	}
-	if b.etcd.Spec.Etcd.PeerUrlTLS != nil {
+	if etcd.Spec.Etcd.PeerUrlTLS != nil {
 		secretVolumeMounts = append(secretVolumeMounts,
 			corev1.VolumeMount{
 				Name:      common.VolumeNameEtcdPeerCA,
@@ -687,7 +697,7 @@ func (b *stsBuilder) getEtcdContainerSecretVolumeMounts() []corev1.VolumeMount {
 			},
 		)
 	}
-	if b.etcd.Spec.Backup.TLS != nil {
+	if etcd.Spec.Backup.TLS != nil {
 		secretVolumeMounts = append(secretVolumeMounts,
 			corev1.VolumeMount{
 				Name:      common.VolumeNameBackupRestoreCA,
