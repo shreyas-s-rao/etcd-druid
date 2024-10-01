@@ -126,8 +126,12 @@ func (r _resource) Sync(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd)
 	}
 	// StatefulSet exists, check if TLS has been enabled for peer communication, if yes then it is currently a multistep
 	// process to ensure that all members are updated and establish peer TLS communication.
-	if err = r.handleTLSChanges(ctx, etcd, existingSTS); err != nil {
-		return err
+	// There is no need to do this check if the etcd.Spec.Replicas have been set to 0 (scale down to 0 case).
+	// TODO: Once we support scale down to non-zero replicas then we will need to adjust the replicas for which we check for TLS.
+	if etcd.Spec.Replicas > 0 {
+		if err = r.handleTLSChanges(ctx, etcd, existingSTS); err != nil {
+			return err
+		}
 	}
 	return r.createOrPatch(ctx, etcd)
 }
@@ -214,16 +218,22 @@ func (r _resource) recreateStsIfOrphanDeleted(ctx component.OperatorContext, etc
 		return
 	}
 	if len(orphanedPodsObjMeta) > 0 {
+		var previousReplicas int
 		// First try and get the previous etcd cluster size by looking at LabelEtcdClusterSizeKey label on the orphaned pods.
 		// In case the label is not set (Only if etcd cluster pods are created from version v0.23.1 onwards, will this label be present)
 		// then fall back to the number of orphaned pods. The reason we do that is that it is not guaranteed that
 		// all orphaned pods are still around. It is possible that they get evicted due to node crash and since there is no STS it will also not get reconciled.
 		etcdClusterSizeStr, ok := orphanedPodsObjMeta[0].Labels[druidv1alpha1.LabelEtcdClusterSizeKey]
-		etcdClusterSize, err = strconv.Atoi(etcdClusterSizeStr)
-		if err != nil {
-			r.logger.Error(err, "Error parsing etcd cluster size from orphaned pod, falling back to number of orphaned pods", "etcdClusterSizeStr", etcdClusterSizeStr)
+		if !ok {
+			r.logger.Info("LabelEtcdClusterSizeKey not found on orphaned pod, falling back to number of orphaned pods", "orphanedPodsCount", len(orphanedPodsObjMeta))
+			previousReplicas = len(orphanedPodsObjMeta)
+		} else {
+			etcdClusterSize, err = strconv.Atoi(etcdClusterSizeStr)
+			if err != nil {
+				r.logger.Error(err, "Error parsing etcd cluster size from orphaned pod, falling back to number of orphaned pods", "etcdClusterSizeStr", etcdClusterSizeStr)
+			}
+			previousReplicas = etcdClusterSize
 		}
-		previousReplicas := utils.IfConditionOr(!ok || err != nil, len(orphanedPodsObjMeta), etcdClusterSize)
 		if err = r.createOrPatchWithReplicas(ctx, etcd, int32(previousReplicas)); err != nil {
 			err = druiderr.WrapError(err,
 				ErrPreSyncStatefulSet,
@@ -231,9 +241,10 @@ func (r _resource) recreateStsIfOrphanDeleted(ctx component.OperatorContext, etc
 				fmt.Sprintf("Error creating StatefulSet with previous replicas for orphan pods adoption for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 			return
 		}
-		if err = r.requeueIfStsNotReady(ctx, etcd); err != nil {
-			return
-		}
+		err = druiderr.New(
+			druiderr.ErrRequeueAfter,
+			component.OperationPreSync,
+			fmt.Sprintf("StatefulSet has not yet been created or is not ready with previous replicas for etcd: %v, requeuing reconcile request", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 		recreated = true
 	}
 	return
@@ -253,25 +264,6 @@ func (r _resource) getOrphanedPodsObjMeta(ctx component.OperatorContext, etcd *d
 		return nil, err
 	}
 	return objMetaList.Items, nil
-}
-
-func (r _resource) requeueIfStsNotReady(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) error {
-	sts, err := r.getExistingStatefulSet(ctx, etcd.ObjectMeta)
-	if err != nil {
-		return druiderr.WrapError(err,
-			ErrPreSyncStatefulSet,
-			component.OperationPreSync,
-			fmt.Sprintf("Error getting StatefulSet after creating with previous replicas for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-	}
-	if sts == nil || (sts.Spec.Replicas != nil && *sts.Spec.Replicas != sts.Status.ReadyReplicas) {
-		return druiderr.New(
-			druiderr.ErrRequeueAfter,
-			component.OperationPreSync,
-			fmt.Sprintf("StatefulSet has not yet been created or is not ready with previous replicas for etcd: %v, requeuing reconcile request", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-	} else {
-		r.logger.Info("Statefulset has been created previous replicas and is now ready")
-	}
-	return nil
 }
 
 // getExistingStatefulSet gets the existing statefulset if it exists.
@@ -341,7 +333,7 @@ func (r _resource) handleTLSChanges(ctx component.OperatorContext, etcd *druidv1
 		return druiderr.New(
 			druiderr.ErrRequeueAfter,
 			component.OperationSync,
-			fmt.Sprintf("Peer URL TLS not enabled for #%d members for etcd: %v, requeuing reconcile request", existingSts.Spec.Replicas, client.ObjectKeyFromObject(etcd)))
+			fmt.Sprintf("Peer URL TLS not enabled for #%d members for etcd: %v, requeuing reconcile request", *existingSts.Spec.Replicas, client.ObjectKeyFromObject(etcd)))
 	}
 }
 
