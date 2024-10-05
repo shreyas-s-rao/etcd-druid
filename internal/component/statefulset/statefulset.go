@@ -234,6 +234,7 @@ func (r _resource) recreateStsIfOrphanDeleted(ctx component.OperatorContext, etc
 			}
 			previousReplicas = etcdClusterSize
 		}
+		r.logger.Info("Recreating StatefulSet with previous replicas", "previousReplicas", previousReplicas)
 		if err = r.createOrPatchWithReplicas(ctx, etcd, int32(previousReplicas)); err != nil {
 			err = druiderr.WrapError(err,
 				ErrPreSyncStatefulSet,
@@ -241,6 +242,7 @@ func (r _resource) recreateStsIfOrphanDeleted(ctx component.OperatorContext, etc
 				fmt.Sprintf("Error creating StatefulSet with previous replicas for orphan pods adoption for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 			return
 		}
+		r.logger.Info("Requeuing reconcile request to allow adoption of orphaned pods")
 		err = druiderr.New(
 			druiderr.ErrRequeueAfter,
 			component.OperationPreSync,
