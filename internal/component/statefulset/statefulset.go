@@ -31,8 +31,6 @@ import (
 const (
 	// ErrGetStatefulSet indicates an error in getting the statefulset resource.
 	ErrGetStatefulSet druidv1alpha1.ErrorCode = "ERR_GET_STATEFULSET"
-	// ErrPreSyncStatefulSet indicates an error in pre-sync operations for the statefulset resource.
-	ErrPreSyncStatefulSet druidv1alpha1.ErrorCode = "ERR_PRESYNC_STATEFULSET"
 	// ErrSyncStatefulSet indicates an error in syncing the statefulset resource.
 	ErrSyncStatefulSet druidv1alpha1.ErrorCode = "ERR_SYNC_STATEFULSET"
 	// ErrDeleteStatefulSet indicates an error in deleting the statefulset resource.
@@ -76,29 +74,8 @@ func (r _resource) GetExistingResourceNames(ctx component.OperatorContext, etcdO
 	return resourceNames, nil
 }
 
-// PreSync recreates the statefulset for the given Etcd, if label selector for the existing statefulset
-// is different from the label selector required to be applied on it. This is because the statefulset's
-// spec.selector field is immutable and cannot be updated on the existing statefulset.
-func (r _resource) PreSync(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) error {
-	r.logger = ctx.Logger.WithValues("component", component.StatefulSetKind, "operation", component.OperationPreSync)
-	r.logger.Info("Running pre-sync for StatefulSet")
-
-	sts, err := r.getExistingStatefulSet(ctx, etcd.ObjectMeta)
-	if err != nil {
-		return druiderr.WrapError(err,
-			ErrPreSyncStatefulSet,
-			component.OperationPreSync,
-			fmt.Sprintf("Error getting StatefulSet: %v for etcd: %v", getObjectKey(etcd.ObjectMeta), druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-	}
-	// if no sts exists, this method is a no-op.
-	if sts != nil {
-		if err = r.handleStsPodLabelsOnMismatch(ctx, etcd, sts); err != nil {
-			return err
-		}
-		if err = r.handleStsLabelSelectorOnMismatch(ctx, etcd, sts); err != nil {
-			return err
-		}
-	}
+// PreSync is a no-op for the statefulset component.
+func (r _resource) PreSync(_ component.OperatorContext, _ *druidv1alpha1.Etcd) error {
 	return nil
 }
 
@@ -124,15 +101,18 @@ func (r _resource) Sync(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd)
 			return r.createOrPatch(ctx, etcd)
 		}
 	}
-	// StatefulSet exists, check if TLS has been enabled for peer communication, if yes then it is currently a multistep
-	// process to ensure that all members are updated and establish peer TLS communication.
-	// There is no need to do this check if the etcd.Spec.Replicas have been set to 0 (scale down to 0 case).
-	// TODO: Once we support scale down to non-zero replicas then we will need to adjust the replicas for which we check for TLS.
-	if etcd.Spec.Replicas > 0 {
+
+	if existingSTS != nil {
 		if err = r.handleTLSChanges(ctx, etcd, existingSTS); err != nil {
 			return err
 		}
+		if !labels.Equals(existingSTS.Spec.Selector.MatchLabels, druidv1alpha1.GetDefaultLabels(etcd.ObjectMeta)) {
+			if err = r.handleStsLabelSelectorOnMismatch(ctx, etcd, existingSTS); err != nil {
+				return err
+			}
+		}
 	}
+
 	return r.createOrPatch(ctx, etcd)
 }
 
@@ -155,50 +135,20 @@ func (r _resource) TriggerDelete(ctx component.OperatorContext, etcdObjMeta meta
 	return nil
 }
 
-func (r _resource) handleStsPodLabelsOnMismatch(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) error {
-	if err := r.checkAndPatchStsPodLabelsOnMismatch(ctx, etcd, sts); err != nil {
-		return druiderr.WrapError(err,
-			ErrPreSyncStatefulSet,
-			component.OperationPreSync,
-			fmt.Sprintf("Error checking and patching StatefulSet pods with new labels for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-	}
-
-	// check if pods have been updated with new labels.
-	podsHaveDesiredLabels, err := r.doStatefulSetPodsHaveDesiredLabels(ctx, etcd, sts)
-	if err != nil {
-		return druiderr.WrapError(err,
-			ErrPreSyncStatefulSet,
-			component.OperationPreSync,
-			fmt.Sprintf("Error checking if StatefulSet pods are updated for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-	}
-	if !podsHaveDesiredLabels {
-		return druiderr.New(druiderr.ErrRequeueAfter,
-			component.OperationPreSync,
-			fmt.Sprintf("StatefulSet pods are not yet updated with new labels, for StatefulSet: %v for etcd: %v", getObjectKey(sts.ObjectMeta), druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)),
-		)
-	} else {
-		r.logger.Info("StatefulSet pods have all the desired labels", "objectKey", getObjectKey(etcd.ObjectMeta))
-	}
-	return nil
-}
-
 func (r _resource) handleStsLabelSelectorOnMismatch(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) error {
-	if labels.Equals(sts.Spec.Selector.MatchLabels, druidv1alpha1.GetDefaultLabels(etcd.ObjectMeta)) {
-		return nil
-	}
 	r.logger.Info("Orphan deleting StatefulSet for recreation later, as label selector has changed", "oldSelector.MatchLabels", sts.Spec.Selector.MatchLabels, "newOldSelector.MatchLabels", druidv1alpha1.GetDefaultLabels(etcd.ObjectMeta))
 	if err := r.client.Delete(ctx, sts, client.PropagationPolicy(metav1.DeletePropagationOrphan)); err != nil {
 		return druiderr.WrapError(err,
-			ErrPreSyncStatefulSet,
-			component.OperationPreSync,
+			ErrSyncStatefulSet,
+			component.OperationSync,
 			fmt.Sprintf("Error orphan deleting StatefulSet: %v for etcd: %v", client.ObjectKeyFromObject(sts), client.ObjectKeyFromObject(sts)))
 	}
 	// check if sts has been orphan delete. If not then requeue.
 	foundSts, err := r.getExistingStatefulSet(ctx, sts.ObjectMeta)
 	if err != nil {
 		return druiderr.WrapError(err,
-			ErrPreSyncStatefulSet,
-			component.OperationPreSync,
+			ErrSyncStatefulSet,
+			component.OperationSync,
 			fmt.Sprintf("Error checking if StatefulSet has been orphan deleted: %v for etcd: %v", client.ObjectKeyFromObject(sts), client.ObjectKeyFromObject(sts)))
 	}
 	if foundSts == nil {
@@ -207,7 +157,7 @@ func (r _resource) handleStsLabelSelectorOnMismatch(ctx component.OperatorContex
 	}
 	return druiderr.New(
 		druiderr.ErrRequeueAfter,
-		component.OperationPreSync,
+		component.OperationSync,
 		fmt.Sprintf("StatefulSet has not been orphan deleted: %v for etcd: %v, requeuing reconcile request", client.ObjectKeyFromObject(sts), client.ObjectKeyFromObject(sts)))
 }
 
@@ -234,18 +184,18 @@ func (r _resource) recreateStsIfOrphanDeleted(ctx component.OperatorContext, etc
 			}
 			previousReplicas = etcdClusterSize
 		}
-		r.logger.Info("Recreating StatefulSet with previous replicas", "previousReplicas", previousReplicas)
-		if err = r.createOrPatchWithReplicas(ctx, etcd, int32(previousReplicas)); err != nil {
+		r.logger.Info("Recreating StatefulSet with previous replicas to adopt orphan pods", "numOrphanedPods", len(orphanedPodsObjMeta), "previousReplicas", previousReplicas)
+		sts := emptyStatefulSet(etcd.ObjectMeta)
+		if err = r.createOrPatchWithReplicas(ctx, etcd, sts, int32(previousReplicas), false); err != nil {
 			err = druiderr.WrapError(err,
-				ErrPreSyncStatefulSet,
-				component.OperationPreSync,
+				ErrSyncStatefulSet,
+				component.OperationSync,
 				fmt.Sprintf("Error creating StatefulSet with previous replicas for orphan pods adoption for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 			return
 		}
-		r.logger.Info("Requeuing reconcile request to allow adoption of orphaned pods")
 		err = druiderr.New(
 			druiderr.ErrRequeueAfter,
-			component.OperationPreSync,
+			component.OperationSync,
 			fmt.Sprintf("StatefulSet has not yet been created or is not ready with previous replicas for etcd: %v, requeuing reconcile request", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 		recreated = true
 	}
@@ -283,16 +233,16 @@ func (r _resource) getExistingStatefulSet(ctx component.OperatorContext, etcdObj
 
 // createOrPatchWithReplicas ensures that the StatefulSet is updated with all changes from passed in etcd but the replicas set on the StatefulSet
 // are taken from the passed in replicas and not from the etcd component.
-func (r _resource) createOrPatchWithReplicas(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, replicas int32) error {
-	desiredStatefulSet := emptyStatefulSet(etcd.ObjectMeta)
+func (r _resource) createOrPatchWithReplicas(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet, replicas int32, skipSetOrUpdateForbiddenFields bool) error {
+	clone := sts.DeepCopy()
 	mutatingFn := func() error {
-		if builder, err := newStsBuilder(r.client, ctx.Logger, etcd, replicas, r.useEtcdWrapper, r.imageVector, desiredStatefulSet); err != nil {
+		if builder, err := newStsBuilder(r.client, ctx.Logger, etcd, replicas, r.useEtcdWrapper, r.imageVector, skipSetOrUpdateForbiddenFields, clone); err != nil {
 			return err
 		} else {
 			return builder.Build(ctx)
 		}
 	}
-	opResult, err := controllerutils.GetAndCreateOrStrategicMergePatch(ctx, r.client, desiredStatefulSet, mutatingFn)
+	opResult, err := controllerutils.GetAndCreateOrStrategicMergePatch(ctx, r.client, clone, mutatingFn)
 	if err != nil {
 		return err
 	}
@@ -302,7 +252,8 @@ func (r _resource) createOrPatchWithReplicas(ctx component.OperatorContext, etcd
 
 // createOrPatch updates StatefulSet taking changes from passed in etcd component.
 func (r _resource) createOrPatch(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) error {
-	if err := r.createOrPatchWithReplicas(ctx, etcd, etcd.Spec.Replicas); err != nil {
+	sts := emptyStatefulSet(etcd.ObjectMeta)
+	if err := r.createOrPatchWithReplicas(ctx, etcd, sts, etcd.Spec.Replicas, false); err != nil {
 		return druiderr.WrapError(err,
 			ErrSyncStatefulSet,
 			component.OperationSync,
@@ -312,9 +263,27 @@ func (r _resource) createOrPatch(ctx component.OperatorContext, etcd *druidv1alp
 }
 
 func (r _resource) handleTLSChanges(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, existingSts *appsv1.StatefulSet) error {
-	isSTSTLSConfigNotInSync := r.isStatefulSetTLSConfigNotInSync(etcd, existingSts)
-	if isSTSTLSConfigNotInSync {
-		if err := r.createOrPatchWithReplicas(ctx, etcd, *existingSts.Spec.Replicas); err != nil {
+	// There are no replicas and there is no need to handle any TLS changes. Once replicas are increased then new pods will automatically have the TLS changes.
+	if etcd.Spec.Replicas == 0 {
+		r.logger.Info("Skipping handling TLS changes for StatefulSet as replicas are set to 0")
+		return nil
+	}
+
+	isSTSTLSConfigInSync := isStatefulSetTLSConfigInSync(etcd, existingSts)
+	if !isSTSTLSConfigInSync {
+		// check if the etcd cluster is in a state where it can handle TLS changes.
+		// If the peer URL TLS has changed and there are more than 1 replicas in the etcd cluster. Then wait for all members to be ready.
+		// If we do not wait for all members to be ready patching STS to reflect peer TLS changes will cause rolling update which will never finish
+		// and the cluster will be stuck in a bad state. Updating peer URL is a cluster wide operation as all members will need to know that a peer TLS has changed.
+		// If not all members are ready then rolling-update of StatefulSet can potentially cause a healthy node to be restarted causing loss of quorum from which
+		// there will not be an automatic recovery.
+		if shouldRequeueForMultiNodeEtcdIfPodsNotReady(existingSts) {
+			return druiderr.New(
+				druiderr.ErrRequeueAfter,
+				component.OperationSync,
+				fmt.Sprintf("Not all etcd cluster members are ready. It is not safe to patch STS for Peer URL TLS changes. Replicas: %d, ReadyReplicas: %d", *existingSts.Spec.Replicas, existingSts.Status.ReadyReplicas))
+		}
+		if err := r.createOrPatchWithReplicas(ctx, etcd, existingSts, *existingSts.Spec.Replicas, true); err != nil {
 			return druiderr.WrapError(err,
 				ErrSyncStatefulSet,
 				component.OperationSync,
@@ -339,12 +308,19 @@ func (r _resource) handleTLSChanges(ctx component.OperatorContext, etcd *druidv1
 	}
 }
 
-func (r _resource) isStatefulSetTLSConfigNotInSync(etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) bool {
+func shouldRequeueForMultiNodeEtcdIfPodsNotReady(sts *appsv1.StatefulSet) bool {
+	return sts.Spec.Replicas != nil &&
+		*sts.Spec.Replicas > 1 &&
+		sts.Status.ReadyReplicas > 0 &&
+		sts.Status.ReadyReplicas < *sts.Spec.Replicas
+}
+
+func isStatefulSetTLSConfigInSync(etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) bool {
 	newEtcdbrTLSVolMounts := getBackupRestoreContainerSecretVolumeMounts(etcd)
 	newEtcdWrapperTLSVolMounts := getEtcdContainerSecretVolumeMounts(etcd)
 	containerTLSVolMounts := utils.GetStatefulSetContainerTLSVolumeMounts(sts)
-	return hasTLSVolumeMountsChanged(containerTLSVolMounts[common.ContainerNameEtcd], newEtcdWrapperTLSVolMounts) ||
-		hasTLSVolumeMountsChanged(containerTLSVolMounts[common.ContainerNameEtcdBackupRestore], newEtcdbrTLSVolMounts)
+	return !hasTLSVolumeMountsChanged(containerTLSVolMounts[common.ContainerNameEtcd], newEtcdWrapperTLSVolMounts) &&
+		!hasTLSVolumeMountsChanged(containerTLSVolMounts[common.ContainerNameEtcdBackupRestore], newEtcdbrTLSVolMounts)
 }
 
 func hasTLSVolumeMountsChanged(existingVolMounts, newVolMounts []corev1.VolumeMount) bool {
@@ -359,43 +335,6 @@ func hasTLSVolumeMountsChanged(existingVolMounts, newVolMounts []corev1.VolumeMo
 		}
 	}
 	return false
-}
-
-func (r _resource) checkAndPatchStsPodLabelsOnMismatch(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) error {
-	desiredPodTemplateLabels := getDesiredPodTemplateLabels(etcd)
-	if !utils.ContainsAllDesiredLabels(sts.Spec.Template.Labels, desiredPodTemplateLabels) {
-		r.logger.Info("Patching StatefulSet with new pod labels", "desiredPodTemplateLabels", desiredPodTemplateLabels)
-		originalSts := sts.DeepCopy()
-		sts.Spec.Template.Labels = utils.MergeMaps(sts.Spec.Template.Labels, desiredPodTemplateLabels)
-		if err := r.client.Patch(ctx, sts, client.MergeFrom(originalSts)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func getDesiredPodTemplateLabels(etcd *druidv1alpha1.Etcd) map[string]string {
-	return utils.MergeMaps(etcd.Spec.Labels, getStatefulSetLabels(etcd.Name))
-}
-
-func (r _resource) doStatefulSetPodsHaveDesiredLabels(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) (bool, error) {
-	// sts.spec.replicas is more accurate than Etcd.spec.replicas, specifically when
-	// Etcd.spec.replicas is updated but not yet reflected in the etcd cluster
-	if sts.Spec.Replicas == nil {
-		return false, fmt.Errorf("statefulset %s does not have a replicas count defined", sts.Name)
-	}
-	podNames := druidv1alpha1.GetAllPodNames(etcd.ObjectMeta, *sts.Spec.Replicas)
-	desiredLabels := getDesiredPodTemplateLabels(etcd)
-	for _, podName := range podNames {
-		pod := &corev1.Pod{}
-		if err := r.client.Get(ctx, client.ObjectKey{Name: podName, Namespace: etcd.Namespace}, pod); err != nil {
-			return false, err
-		}
-		if !utils.ContainsAllDesiredLabels(pod.Labels, desiredLabels) {
-			return false, nil
-		}
-	}
-	return true, nil
 }
 
 func emptyStatefulSet(obj metav1.ObjectMeta) *appsv1.StatefulSet {
