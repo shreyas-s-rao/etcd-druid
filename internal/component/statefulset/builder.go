@@ -584,6 +584,9 @@ func (b *stsBuilder) getBackupStoreCommandArgs() []string {
 	}
 	commandArgs = append(commandArgs, "--etcd-snapshot-timeout="+etcdSnapshotTimeout)
 
+	// Enable/Disable use Etcd Wrapper in BackupRestore container. Once `use-etcd-wrapper` feature-gate is GA then this value will always be true.
+	commandArgs = append(commandArgs, fmt.Sprintf("--use-etcd-wrapper=%t", b.useEtcdWrapper))
+
 	return commandArgs
 }
 
