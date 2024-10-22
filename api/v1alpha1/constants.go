@@ -4,7 +4,7 @@
 
 package v1alpha1
 
-// Common label keys to be placed on all druid-managed resources
+// Common label keys to be placed on all druid-managed resources.
 const (
 	// LabelAppNameKey is a label which sets the name of the resource provisioned for an etcd cluster.
 	LabelAppNameKey = "app.kubernetes.io/name"
@@ -16,7 +16,7 @@ const (
 	LabelPartOfKey = "app.kubernetes.io/part-of"
 	// LabelComponentKey is a key for a label that sets the component type on resources provisioned for an etcd cluster.
 	LabelComponentKey = "app.kubernetes.io/component"
-	// LabelEtcdClusterSizeKey is a key for a label that sets the size of an etcd cluster.
+	// LabelEtcdClusterSizeKey is the label key used to store the size of the etcd cluster on the etcd pods.
 	LabelEtcdClusterSizeKey = "druid.gardener.cloud/etcd-cluster-size"
 )
 

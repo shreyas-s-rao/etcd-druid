@@ -7,7 +7,6 @@ package statefulset
 import (
 	"fmt"
 	"slices"
-	"strconv"
 
 	druidv1alpha1 "github.com/gardener/etcd-druid/api/v1alpha1"
 	"github.com/gardener/etcd-druid/internal/common"
@@ -92,13 +91,17 @@ func (r _resource) Sync(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd)
 	}
 	// There is no StatefulSet present. Create one.
 	if existingSTS == nil {
-		// check if sts is orphan deleted in the PreSync step and there are orphaned pods that exist.
-		recreated, err := r.recreateStsIfOrphanDeleted(ctx, etcd)
-		if err != nil {
-			return err
-		}
-		if !recreated {
+		// Check etcd observed generation to determine if the etcd cluster is new or not.
+		if etcd.Status.ObservedGeneration == nil {
 			return r.createOrPatch(ctx, etcd)
+		}
+
+		// If etcd is old, but sts is missing, then the sts has been orphan deleted
+		// by the reconciler, so it needs to be recreated. The method always returns an error,
+		// which is used to requeue the reconciliation, so that upon the next reconciliation,
+		// the sts creation would have succeeded and orphaned pods would have been adopted.
+		if err = r.recreateOrphanDeletedSts(ctx, etcd); err != nil {
+			return err
 		}
 	}
 
@@ -137,6 +140,9 @@ func (r _resource) TriggerDelete(ctx component.OperatorContext, etcdObjMeta meta
 
 func (r _resource) handleStsLabelSelectorOnMismatch(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd, sts *appsv1.StatefulSet) error {
 	r.logger.Info("Orphan deleting StatefulSet for recreation later, as label selector has changed", "oldSelector.MatchLabels", sts.Spec.Selector.MatchLabels, "newOldSelector.MatchLabels", druidv1alpha1.GetDefaultLabels(etcd.ObjectMeta))
+	// TODO: remove
+	//propagation := metav1.DeletePropagationOrphan
+	//if err := r.client.Delete(ctx, sts, &client.DeleteOptions{PropagationPolicy: &propagation}); err != nil {
 	if err := r.client.Delete(ctx, sts, client.PropagationPolicy(metav1.DeletePropagationOrphan)); err != nil {
 		return druiderr.WrapError(err,
 			ErrSyncStatefulSet,
@@ -161,48 +167,34 @@ func (r _resource) handleStsLabelSelectorOnMismatch(ctx component.OperatorContex
 		fmt.Sprintf("StatefulSet has not been orphan deleted: %v for etcd: %v, requeuing reconcile request", client.ObjectKeyFromObject(sts), client.ObjectKeyFromObject(sts)))
 }
 
-func (r _resource) recreateStsIfOrphanDeleted(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) (recreated bool, err error) {
-	var etcdClusterSize int
-	orphanedPodsObjMeta, err := r.getOrphanedPodsObjMeta(ctx, etcd)
+func (r _resource) recreateOrphanDeletedSts(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) error {
+	podsObjMeta, err := r.getPodsObjMeta(ctx, etcd)
 	if err != nil {
-		return
+		return err
 	}
-	if len(orphanedPodsObjMeta) > 0 {
-		var previousReplicas int
-		// First try and get the previous etcd cluster size by looking at LabelEtcdClusterSizeKey label on the orphaned pods.
-		// In case the label is not set (Only if etcd cluster pods are created from version v0.23.1 onwards, will this label be present)
-		// then fall back to the number of orphaned pods. The reason we do that is that it is not guaranteed that
-		// all orphaned pods are still around. It is possible that they get evicted due to node crash and since there is no STS it will also not get reconciled.
-		etcdClusterSizeStr, ok := orphanedPodsObjMeta[0].Labels[druidv1alpha1.LabelEtcdClusterSizeKey]
-		if !ok {
-			r.logger.Info("LabelEtcdClusterSizeKey not found on orphaned pod, falling back to number of orphaned pods", "orphanedPodsCount", len(orphanedPodsObjMeta))
-			previousReplicas = len(orphanedPodsObjMeta)
-		} else {
-			etcdClusterSize, err = strconv.Atoi(etcdClusterSizeStr)
-			if err != nil {
-				r.logger.Error(err, "Error parsing etcd cluster size from orphaned pod, falling back to number of orphaned pods", "etcdClusterSizeStr", etcdClusterSizeStr)
-			}
-			previousReplicas = etcdClusterSize
-		}
-		r.logger.Info("Recreating StatefulSet with previous replicas to adopt orphan pods", "numOrphanedPods", len(orphanedPodsObjMeta), "previousReplicas", previousReplicas)
-		sts := emptyStatefulSet(etcd.ObjectMeta)
-		if err = r.createOrPatchWithReplicas(ctx, etcd, sts, int32(previousReplicas), false); err != nil {
-			err = druiderr.WrapError(err,
-				ErrSyncStatefulSet,
-				component.OperationSync,
-				fmt.Sprintf("Error creating StatefulSet with previous replicas for orphan pods adoption for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-			return
-		}
-		err = druiderr.New(
-			druiderr.ErrRequeueAfter,
+
+	previousReplicas := len(podsObjMeta)
+	// Orphaned pods might have been deleted/evicted while the sts was orphan-deleted.
+	// In such cases, make use of the etcd.status.members to determine the previous cluster size.
+	if previousReplicas == 0 {
+		previousReplicas = len(etcd.Status.Members)
+	}
+
+	r.logger.Info("Recreating StatefulSet with previous replicas to adopt orphan pods", "numOrphanedPods", len(podsObjMeta), "previousReplicas", previousReplicas)
+	sts := emptyStatefulSet(etcd.ObjectMeta)
+	if err = r.createOrPatchWithReplicas(ctx, etcd, sts, int32(previousReplicas), false); err != nil {
+		return druiderr.WrapError(err,
+			ErrSyncStatefulSet,
 			component.OperationSync,
-			fmt.Sprintf("StatefulSet has not yet been created or is not ready with previous replicas for etcd: %v, requeuing reconcile request", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
-		recreated = true
+			fmt.Sprintf("Error creating StatefulSet with previous replicas for orphan pods adoption for etcd: %v", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 	}
-	return
+	return druiderr.New(
+		druiderr.ErrRequeueAfter,
+		component.OperationSync,
+		fmt.Sprintf("StatefulSet has not yet been created or is not ready with previous replicas for etcd: %v, requeuing reconcile request", druidv1alpha1.GetNamespaceName(etcd.ObjectMeta)))
 }
 
-func (r _resource) getOrphanedPodsObjMeta(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) ([]metav1.PartialObjectMetadata, error) {
+func (r _resource) getPodsObjMeta(ctx component.OperatorContext, etcd *druidv1alpha1.Etcd) ([]metav1.PartialObjectMetadata, error) {
 	objMetaList := &metav1.PartialObjectMetadataList{}
 	objMetaList.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
 	if err := r.client.List(ctx,

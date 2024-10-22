@@ -181,24 +181,29 @@ func (b *stsBuilder) createPodTemplateSpec(ctx component.OperatorContext) error 
 		},
 	}
 
-	if b.skipSetOrUpdateForbiddenFields {
-		podTemplateSpec.ObjectMeta = b.sts.Spec.Template.ObjectMeta
-	} else {
-		podTemplateSpec.ObjectMeta = metav1.ObjectMeta{
-			Labels:      b.getStatefulSetPodLabels(int(b.replicas)),
-			Annotations: b.getPodTemplateAnnotations(ctx),
-		}
+	podTemplateLabels := b.getStatefulSetPodLabels()
+	selectorMatchesLabels, err := utils.DoesLabelSelectorMatchLabels(b.sts.Spec.Selector, podTemplateLabels)
+	if err != nil {
+		return err
+	}
+	if !selectorMatchesLabels {
+		podTemplateLabels = utils.MergeMaps(podTemplateLabels, b.sts.Spec.Template.Labels)
+	}
+
+	podTemplateSpec.ObjectMeta = metav1.ObjectMeta{
+		Labels:      podTemplateLabels,
+		Annotations: b.getPodTemplateAnnotations(ctx),
 	}
 	b.sts.Spec.Template = podTemplateSpec
 	return nil
 }
 
-func (b *stsBuilder) getStatefulSetPodLabels(replicas int) map[string]string {
+func (b *stsBuilder) getStatefulSetPodLabels() map[string]string {
 	return utils.MergeMaps(
 		b.etcd.Spec.Labels,
 		b.getStatefulSetLabels(),
 		map[string]string{
-			druidv1alpha1.LabelEtcdClusterSizeKey: strconv.Itoa(replicas),
+			druidv1alpha1.LabelEtcdClusterSizeKey: strconv.Itoa(int(b.etcd.Spec.Replicas)),
 		})
 }
 

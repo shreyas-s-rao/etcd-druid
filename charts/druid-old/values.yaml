@@ -1,0 +1,13 @@
+crds:
+  enabled: true
+image:
+  repository: europe-docker.pkg.dev/gardener-project/public/gardener/etcd-druid
+  tag: v0.22.7
+  imagePullPolicy: IfNotPresent
+replicas: 1
+ignoreOperationAnnotation: false
+enableBackupCompaction: true
+eventsThreshold: 15
+metricsScrapeWaitDuration: "30s"
+# featureGates:
+#   UseEtcdWrapper: true
