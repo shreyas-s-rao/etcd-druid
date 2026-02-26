@@ -6,8 +6,6 @@ on:
       - 'hotfix-**'
       - 'release-**'
   pull_request_target:
-    types:
-      - labeled
 
 jobs:
   build:
@@ -15,7 +13,8 @@ jobs:
     with:
       mode: snapshot
     secrets: inherit
-    if: ${{ github.event.action != 'labeled' || (github.event.label.name == vars.DEFAULT_LABEL_OK_TO_TEST && vars.DEFAULT_LABEL_OK_TO_TEST != '') }}
+    # Run for push events unconditionally; for PR events (labeled/synchronize), only run if ok-to-test label exists
+    if: ${{ github.event_name == 'push' || (vars.DEFAULT_LABEL_OK_TO_TEST != '' && contains(github.event.pull_request.labels.*.name, vars.DEFAULT_LABEL_OK_TO_TEST)) }}
     permissions:
       contents: read
       packages: write
@@ -26,7 +25,8 @@ jobs:
     uses: gardener/cc-utils/.github/workflows/post-build.yaml@master
     needs:
       - build
-    if: ${{ github.event.action != 'labeled' || (github.event.label.name == vars.DEFAULT_LABEL_OK_TO_TEST && vars.DEFAULT_LABEL_OK_TO_TEST != '') }}
+    # Run for push events unconditionally; for PR events (labeled/synchronize), only run if ok-to-test label exists
+    if: ${{ github.event_name == 'push' || (vars.DEFAULT_LABEL_OK_TO_TEST != '' && contains(github.event.pull_request.labels.*.name, vars.DEFAULT_LABEL_OK_TO_TEST)) }}
     permissions:
       id-token: write
       contents: write
